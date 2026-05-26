@@ -14,7 +14,195 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      banned: {
+        Row: {
+          banned_at: string
+          reason: string | null
+          telegram_id: number
+        }
+        Insert: {
+          banned_at?: string
+          reason?: string | null
+          telegram_id: number
+        }
+        Update: {
+          banned_at?: string
+          reason?: string | null
+          telegram_id?: number
+        }
+        Relationships: []
+      }
+      chat_logs: {
+        Row: {
+          created_at: string
+          id: number
+          role: string
+          text: string | null
+          user_id: number
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          role: string
+          text?: string | null
+          user_id: number
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          role?: string
+          text?: string | null
+          user_id?: number
+        }
+        Relationships: []
+      }
+      convos: {
+        Row: {
+          admin_id: number
+          started_at: string
+          target_user_id: number
+        }
+        Insert: {
+          admin_id: number
+          started_at?: string
+          target_user_id: number
+        }
+        Update: {
+          admin_id?: number
+          started_at?: string
+          target_user_id?: number
+        }
+        Relationships: []
+      }
+      movies: {
+        Row: {
+          added_by: number | null
+          created_at: string
+          file_id: string
+          id: number
+          language: string | null
+          quality: string | null
+          title: string
+          type: string | null
+          year: number | null
+        }
+        Insert: {
+          added_by?: number | null
+          created_at?: string
+          file_id: string
+          id?: number
+          language?: string | null
+          quality?: string | null
+          title: string
+          type?: string | null
+          year?: number | null
+        }
+        Update: {
+          added_by?: number | null
+          created_at?: string
+          file_id?: string
+          id?: number
+          language?: string | null
+          quality?: string | null
+          title?: string
+          type?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
+      payload_store: {
+        Row: {
+          data: Json
+          expires_at: string
+          key: string
+        }
+        Insert: {
+          data: Json
+          expires_at?: string
+          key: string
+        }
+        Update: {
+          data?: Json
+          expires_at?: string
+          key?: string
+        }
+        Relationships: []
+      }
+      pending_uploads: {
+        Row: {
+          admin_id: number
+          payload: Json
+          updated_at: string
+        }
+        Insert: {
+          admin_id: number
+          payload: Json
+          updated_at?: string
+        }
+        Update: {
+          admin_id?: number
+          payload?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      requests: {
+        Row: {
+          created_at: string
+          fulfilled_at: string | null
+          id: number
+          status: string
+          title: string
+          user_id: number
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          fulfilled_at?: string | null
+          id?: number
+          status?: string
+          title: string
+          user_id: number
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          fulfilled_at?: string | null
+          id?: number
+          status?: string
+          title?: string
+          user_id?: number
+          username?: string | null
+        }
+        Relationships: []
+      }
+      tg_users: {
+        Row: {
+          first_name: string | null
+          joined_at: string
+          last_seen: string
+          message_count: number
+          telegram_id: number
+          username: string | null
+        }
+        Insert: {
+          first_name?: string | null
+          joined_at?: string
+          last_seen?: string
+          message_count?: number
+          telegram_id: number
+          username?: string | null
+        }
+        Update: {
+          first_name?: string | null
+          joined_at?: string
+          last_seen?: string
+          message_count?: number
+          telegram_id?: number
+          username?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

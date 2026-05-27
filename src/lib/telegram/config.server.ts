@@ -6,7 +6,7 @@ const required = (name: string, fallback?: string) => {
 
 export const BOT_TOKEN = () => required("BOT_TOKEN");
 export const TMDB_API_KEY = () => required("TMDB_API_KEY");
-export const CHANNEL = () => process.env.CHANNEL || "@cineradarai";
+export const CHANNEL = () => process.env.CHANNEL || "@cinebotbackupgroup";
 export const CHANNEL_USERNAME = () => (process.env.CHANNEL || "@cineradarai").replace("@", "");
 export const BOT_USERNAME = () => process.env.BOT_USERNAME || "cineradarai_bot";
 

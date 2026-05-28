@@ -1,7 +1,6 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import Fuse from "fuse.js";
 import {
-  AUTO_DELETE_MS,
   BOT_TOKEN,
   BOT_USERNAME,
   CHANNEL,
@@ -50,6 +49,9 @@ import {
   type MovieRow,
 } from "./db.server";
 
+// ─── FIX 1: 5-minute auto-delete (defined locally, not imported) ─────────────
+const AUTO_DELETE_MS = 5 * 60 * 1000; // 5 minutes
+
 // ─── helpers ────────────────────────────────────────────────
 function sanitize(s: string | undefined): string {
   if (typeof s !== "string") return "";
@@ -75,7 +77,6 @@ function movieBtnLabel(m: MovieRow): string {
 }
 
 function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
-  // Workers can't reliably keep a 3-min setTimeout. Best-effort fire-and-forget.
   setTimeout(() => {
     msgIds.forEach((id) => {
       if (id) api.deleteMessage(chatId, id).catch(() => {});
@@ -86,7 +87,6 @@ function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.reply(text, opts).catch(() => null);
-  // Only auto-delete in private DM — never delete group chat messages
   if (!isA && msg && ctx.chat?.id && ctx.chat?.type === "private") {
     scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
@@ -184,7 +184,6 @@ async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
       if (["member", "administrator", "creator"].includes(m.status)) return true;
     } catch { errors++; }
   }
-  // If bot can't check (not admin in any channel), don't block users.
   if (errors === checks.length) return true;
   return false;
 }
@@ -204,7 +203,53 @@ async function sendForceJoinMsg(ctx: Context) {
   ).catch(() => {});
 }
 
-// ── bot factory (created per request) ──
+// ─── FIX 2: finishUpload — extracted and hardened ────────────────────────────
+// Now accepts an explicit adminId so it works correctly from both
+// message-handler and callback-handler contexts.
+async function finishUpload(ctx: Context, pend: any, adminId: number) {
+  // Validate required fields before attempting DB insert
+  if (!pend.name || !pend.name.trim()) {
+    await clearPendingUpload(adminId);
+    return ctx.reply("❌ Movie name missing. Upload kancelled karein aur dobara try karein.");
+  }
+  if (!pend.file_id) {
+    await clearPendingUpload(adminId);
+    return ctx.reply("❌ File ID missing. Pehle video/file bhejein.");
+  }
+
+  // Safely parse year
+  const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
+
+  const { movie: inserted, error: insErr } = await insertMovie({
+    title: pend.name.trim(),
+    file_id: pend.file_id,
+    year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
+    language: pend.language ?? null,
+    quality: pend.quality ?? null,
+    type: null,
+    added_by: adminId,
+  });
+  await clearPendingUpload(adminId);
+
+  if (!inserted) {
+    return ctx.reply(
+      `❌ Movie save nahi hui.\n\nReason: \`${insErr || "unknown"}\`\n\nDobara /edit <id> se retry karein.`,
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  const caption =
+    `✅ *Movie Saved!*\n\n` +
+    `🎬 ${escapeMarkdown(pend.name)} (${yearNum || "?"})\n` +
+    `🌐 ${pend.language || "N/A"} | 📺 ${pend.quality || "N/A"}\n` +
+    `🆔 ID: \`${inserted.id}\``;
+  const kb = new InlineKeyboard()
+    .text("📢 Post to Channel", `post_to_channel_${inserted.id}`)
+    .text("❌ No", "dismiss_post");
+  return ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
+}
+
+// ── bot factory ──
 export function createBot(): Bot {
   const bot = new Bot(BOT_TOKEN());
 
@@ -237,7 +282,6 @@ export function createBot(): Bot {
     }
     if (isAdmin(uid)) return next();
 
-    // verify_join callback special-case
     if (ctx.callbackQuery?.data === "verify_join") {
       const joined = await isChannelMember(bot, uid);
       if (joined) {
@@ -257,7 +301,6 @@ export function createBot(): Bot {
       });
     }
 
-    // Skip force-join in group chats — only enforce in private DM.
     const chatType = ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type;
     if (chatType && chatType !== "private") return next();
 
@@ -317,7 +360,7 @@ export function createBot(): Bot {
       `📋 /myrequests — Apni requests\n` +
       `❓ /help — Poori guide\n\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
-      `⏱️ _Messages 3 min mein delete hote hain — forward karke save karo_\n` +
+      `⏱️ _Messages 5 min mein delete hote hain — forward karke save karo_\n` +
       `⚡ _3x Fast Download ke liye website visit karein ek baar_`,
       { parse_mode: "Markdown" }
     );
@@ -588,7 +631,11 @@ export function createBot(): Bot {
     }
     const m = await fetchMovieById(id);
     if (!m) return ctx.reply("❌ Movie not found.");
+
+    // FIX 3: Clear any stale pending upload before starting edit session
+    await clearPendingUpload(ctx.from!.id);
     await setPendingUpload(ctx.from!.id, { mode: "edit", id, step: "field" });
+
     const kb = new InlineKeyboard()
       .text("📝 Title", `edit_field_title`).text("📅 Year", `edit_field_year`).row()
       .text("🌐 Language", `edit_field_language`).text("📺 Quality", `edit_field_quality`).row()
@@ -597,7 +644,7 @@ export function createBot(): Bot {
       `✏️ *Edit Movie \`${m.id}\`*\n\n` +
       `🎬 ${escapeMarkdown(m.title)}\n` +
       `📅 ${m.year ?? "—"}  |  🌐 ${m.language ?? "—"}  |  📺 ${m.quality ?? "—"}\n\n` +
-      `Kaunsa field edit karna hai?`,
+      `Kaunsa field edit karna hai? *Neeche button dabao:*`,
       { parse_mode: "Markdown", reply_markup: kb },
     );
   });
@@ -652,12 +699,16 @@ export function createBot(): Bot {
     if (isA && msg.text && !msg.text.startsWith("/")) {
       const active = await getActiveConvo();
       if (active && active.admin_id === uid) {
-        try {
-          await ctx.api.sendMessage(active.target_user_id,
-            `📣 *CineRadar Admin:*\n\n${escapeMarkdown(msg.text)}`, { parse_mode: "Markdown" });
-          await ctx.reply(`✅ Bhej diya to ${active.target_user_id}`);
-        } catch (e) { await ctx.reply(`❌ Failed: ${(e as Error).message}`); }
-        return;
+        // Make sure admin is not in a pending upload/edit state before relaying
+        const pend = await getPendingUpload(uid);
+        if (!pend) {
+          try {
+            await ctx.api.sendMessage(active.target_user_id,
+              `📣 *CineRadar Admin:*\n\n${escapeMarkdown(msg.text)}`, { parse_mode: "Markdown" });
+            await ctx.reply(`✅ Bhej diya to ${active.target_user_id}`);
+          } catch (e) { await ctx.reply(`❌ Failed: ${(e as Error).message}`); }
+          return;
+        }
       }
     }
 
@@ -680,55 +731,106 @@ export function createBot(): Bot {
       }
     }
 
-    // admin upload multi-step
+    // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
-      const fileId = msg.video?.file_id || msg.document?.file_id;
-      await setPendingUpload(uid, { step: "name", file_id: fileId });
-      return ctx.reply("✅ File received!\n\n📝 *Step 1/4:* Enter movie name:", { parse_mode: "Markdown" });
+      const fileId = msg.video?.file_id ?? msg.document?.file_id;
+      if (!fileId) {
+        return ctx.reply("❌ File ID nahi mila. Dobara try karein.");
+      }
+      // Clear any existing pending state before starting fresh upload
+      await clearPendingUpload(uid);
+      await setPendingUpload(uid, { mode: "upload", step: "name", file_id: fileId });
+      return ctx.reply(
+        "✅ *File Received!*\n\n📝 *Step 1/4:* Movie ka naam type karein:\n\n_Upload cancel karne ke liye /edit ya koi command use karein_",
+        { parse_mode: "Markdown" }
+      );
     }
+
+    // ─── FIX 2 & 3: Admin text — upload steps + edit value capture ────────────
     if (isA && msg.text) {
       const pend = await getPendingUpload(uid);
       if (pend) {
         const text = sanitize(msg.text);
-        // ── edit-mode value capture ──
+
+        // ── FIX 3: Edit mode — value capture ──
         if (pend.mode === "edit" && pend.step === "value" && pend.field) {
           const patch: any = {};
           if (pend.field === "year") {
             const y = Number(text);
-            if (!Number.isFinite(y)) return ctx.reply("❌ Year must be a number.");
+            if (!Number.isFinite(y) || y < 1900 || y > 2100) {
+              return ctx.reply("❌ Valid year dein (e.g. 2024).");
+            }
             patch.year = y;
           } else {
-            patch[pend.field] = text;
+            if (!text.trim()) return ctx.reply("❌ Yeh field empty nahi ho sakti.");
+            patch[pend.field] = text.trim();
           }
           const { movie, error } = await updateMovie(pend.id, patch);
           await clearPendingUpload(uid);
           if (!movie) return ctx.reply(`❌ Edit failed: \`${error || "unknown"}\``, { parse_mode: "Markdown" });
           return ctx.reply(
-            `✅ *Updated!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
+            `✅ *Updated Successfully!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
             `📅 ${movie.year ?? "—"}  |  🌐 ${movie.language ?? "—"}  |  📺 ${movie.quality ?? "—"}`,
             { parse_mode: "Markdown" },
           );
         }
-        if (pend.step === "name") {
-          pend.name = text; pend.step = "year";
-          await setPendingUpload(uid, pend);
-          return ctx.reply("📅 *Step 2/4:* Release year (e.g. 2025):", { parse_mode: "Markdown" });
+
+        // FIX 3: Edit mode — "field" step, admin typed instead of clicking button
+        if (pend.mode === "edit" && pend.step === "field") {
+          return ctx.reply(
+            `⚠️ *Button dabao!*\n\nKaunsa field edit karna hai, uska button select karein.`,
+            { parse_mode: "Markdown" }
+          );
         }
-        if (pend.step === "year") {
-          pend.year = text; pend.step = "language";
-          await setPendingUpload(uid, pend);
-          const kb = new InlineKeyboard()
-            .text("🇮🇳 Hindi", "ul_lang_Hindi").text("🇺🇸 English", "ul_lang_English").row()
-            .text("🎭 Dual Audio", "ul_lang_Dual Audio").text("🌍 Multi Audio", "ul_lang_Multi Audio").row()
-            .text("🎬 Telugu", "ul_lang_Telugu").text("🎬 Tamil", "ul_lang_Tamil").row()
-            .text("🎬 Malayalam", "ul_lang_Malayalam").text("🎬 Kannada", "ul_lang_Kannada");
-          return ctx.reply("🌐 *Step 3/4:* Select language:", { parse_mode: "Markdown", reply_markup: kb });
+
+        // ── Upload steps ──
+        if (pend.mode === "upload" || !pend.mode) {
+          if (pend.step === "name") {
+            if (!text.trim()) return ctx.reply("❌ Movie name empty nahi ho sakta. Dobara type karein.");
+            pend.name = text.trim();
+            pend.step = "year";
+            await setPendingUpload(uid, pend);
+            return ctx.reply("📅 *Step 2/4:* Release year likho (e.g. 2025):", { parse_mode: "Markdown" });
+          }
+          if (pend.step === "year") {
+            // FIX 2: Validate year before proceeding
+            const y = Number(text.trim());
+            if (!Number.isFinite(y) || y < 1900 || y > 2100) {
+              return ctx.reply("❌ Valid year dein (e.g. 2024). Dobara type karein:");
+            }
+            pend.year = String(y);
+            pend.step = "language";
+            await setPendingUpload(uid, pend);
+            const kb = new InlineKeyboard()
+              .text("🇮🇳 Hindi", "ul_lang_Hindi").text("🇺🇸 English", "ul_lang_English").row()
+              .text("🎭 Dual Audio", "ul_lang_Dual Audio").text("🌍 Multi Audio", "ul_lang_Multi Audio").row()
+              .text("🎬 Telugu", "ul_lang_Telugu").text("🎬 Tamil", "ul_lang_Tamil").row()
+              .text("🎬 Malayalam", "ul_lang_Malayalam").text("🎬 Kannada", "ul_lang_Kannada").row()
+              .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
+            return ctx.reply("🌐 *Step 3/4:* Language select karo:", { parse_mode: "Markdown", reply_markup: kb });
+          }
+          // FIX 2: If step is "language", remind admin to click button
+          if (pend.step === "language") {
+            const kb = new InlineKeyboard()
+              .text("🇮🇳 Hindi", "ul_lang_Hindi").text("🇺🇸 English", "ul_lang_English").row()
+              .text("🎭 Dual Audio", "ul_lang_Dual Audio").text("🌍 Multi Audio", "ul_lang_Multi Audio").row()
+              .text("🎬 Telugu", "ul_lang_Telugu").text("🎬 Tamil", "ul_lang_Tamil").row()
+              .text("🎬 Malayalam", "ul_lang_Malayalam").text("🎬 Kannada", "ul_lang_Kannada").row()
+              .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
+            return ctx.reply("⚠️ *Upar se language button dabao:*", { parse_mode: "Markdown", reply_markup: kb });
+          }
+          // FIX 2: If step is "quality", remind admin to click button
+          if (pend.step === "quality") {
+            const kb = new InlineKeyboard()
+              .text("360p", "ul_qual_360p").text("480p", "ul_qual_480p").row()
+              .text("720p", "ul_qual_720p").text("1080p", "ul_qual_1080p").row()
+              .text("4K UHD", "ul_qual_4K").text("HDR", "ul_qual_HDR");
+            return ctx.reply("⚠️ *Upar se quality button dabao:*", { parse_mode: "Markdown", reply_markup: kb });
+          }
         }
-        if (pend.step === "quality") {
-          pend.quality = text;
-          return finishUpload(ctx, pend);
-        }
-        return;
+        // Catch-all: unknown step — clear and reset
+        await clearPendingUpload(uid);
+        return ctx.reply("⚠️ Upload state reset. Dobara video/file bhejein.");
       }
     }
 
@@ -863,28 +965,6 @@ export function createBot(): Bot {
       { parse_mode: "Markdown", reply_markup: kb });
   }
 
-  async function finishUpload(ctx: Context, pend: any) {
-    const { movie: inserted, error: insErr } = await insertMovie({
-      title: pend.name, file_id: pend.file_id, year: pend.year ? Number(pend.year) : null,
-      language: pend.language, quality: pend.quality, type: null, added_by: ctx.from!.id,
-    });
-    await clearPendingUpload(ctx.from!.id);
-    if (!inserted) {
-      return ctx.reply(`❌ Failed to save movie.\n\nReason: \`${insErr || "unknown"}\``, {
-        parse_mode: "Markdown",
-      });
-    }
-    const caption =
-      `✅ *Movie Saved!*\n\n` +
-      `🎬 ${escapeMarkdown(pend.name)} (${pend.year})\n` +
-      `🌐 ${pend.language} | 📺 ${pend.quality}\n` +
-      `🆔 ID: \`${inserted.id}\``;
-    const kb = new InlineKeyboard()
-      .text("📢 Post to Channel", `post_to_channel_${inserted.id}`)
-      .text("❌ No", "dismiss_post");
-    return ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
-  }
-
   // ─── CALLBACK HANDLER ───
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
@@ -907,13 +987,14 @@ export function createBot(): Bot {
       return sendRandomMovie(ctx, mood);
     }
 
-    // ── edit mode callbacks ──
+    // ── FIX 3: Edit mode callbacks ──
     if (data === "edit_cancel") {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       await clearPendingUpload(uid);
       try { await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }); } catch {}
-      return ctx.answerCallbackQuery({ text: "Edit cancelled" });
+      return ctx.answerCallbackQuery({ text: "✅ Edit cancelled" });
     }
+
     if (data.startsWith("edit_field_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
@@ -921,75 +1002,100 @@ export function createBot(): Bot {
         return ctx.answerCallbackQuery({ text: "❌ No active edit. Use /edit <id>", show_alert: true });
       }
       const field = data.slice("edit_field_".length);
+
       if (field === "language") {
-        pend.field = "language"; pend.step = "value";
+        pend.field = "language";
+        pend.step = "value";
         await setPendingUpload(uid, pend);
         const kb = new InlineKeyboard()
           .text("🇮🇳 Hindi", "edit_lang_Hindi").text("🇺🇸 English", "edit_lang_English").row()
           .text("🎭 Dual Audio", "edit_lang_Dual Audio").text("🌍 Multi Audio", "edit_lang_Multi Audio").row()
           .text("🎬 Telugu", "edit_lang_Telugu").text("🎬 Tamil", "edit_lang_Tamil").row()
-          .text("🎬 Malayalam", "edit_lang_Malayalam").text("🎬 Kannada", "edit_lang_Kannada");
-        await ctx.answerCallbackQuery();
-        return ctx.reply("🌐 Select new language:", { reply_markup: kb });
+          .text("🎬 Malayalam", "edit_lang_Malayalam").text("🎬 Kannada", "edit_lang_Kannada").row()
+          .text("❌ Cancel", "edit_cancel");
+        // FIX 3: answerCallbackQuery BEFORE ctx.reply
+        await ctx.answerCallbackQuery({ text: "🌐 Language select karein" });
+        return ctx.reply("🌐 *New language select karo:*", { parse_mode: "Markdown", reply_markup: kb });
       }
+
       if (field === "quality") {
-        pend.field = "quality"; pend.step = "value";
+        pend.field = "quality";
+        pend.step = "value";
         await setPendingUpload(uid, pend);
         const kb = new InlineKeyboard()
           .text("360p", "edit_qual_360p").text("480p", "edit_qual_480p").row()
           .text("720p", "edit_qual_720p").text("1080p", "edit_qual_1080p").row()
-          .text("4K UHD", "edit_qual_4K").text("HDR", "edit_qual_HDR");
-        await ctx.answerCallbackQuery();
-        return ctx.reply("📺 Select new quality:", { reply_markup: kb });
+          .text("4K UHD", "edit_qual_4K").text("HDR", "edit_qual_HDR").row()
+          .text("❌ Cancel", "edit_cancel");
+        // FIX 3: answerCallbackQuery BEFORE ctx.reply
+        await ctx.answerCallbackQuery({ text: "📺 Quality select karein" });
+        return ctx.reply("📺 *New quality select karo:*", { parse_mode: "Markdown", reply_markup: kb });
       }
-      // title / year — free text
-      pend.field = field; pend.step = "value";
+
+      // title / year — free text input
+      pend.field = field;
+      pend.step = "value";
       await setPendingUpload(uid, pend);
-      await ctx.answerCallbackQuery();
-      return ctx.reply(`✏️ Type new *${field}*:`, { parse_mode: "Markdown" });
+      await ctx.answerCallbackQuery({ text: `✏️ ${field} type karein` });
+      return ctx.reply(
+        `✏️ *New ${field} type karein:*\n\n_Current: ${field === "title" ? "Movie naam" : "Year"}_`,
+        { parse_mode: "Markdown" }
+      );
     }
+
+    // FIX 3: Edit language/quality button callbacks
     if (data.startsWith("edit_lang_") || data.startsWith("edit_qual_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
       if (!pend || pend.mode !== "edit") {
-        return ctx.answerCallbackQuery({ text: "❌ No active edit", show_alert: true });
+        return ctx.answerCallbackQuery({ text: "❌ No active edit. Use /edit <id>", show_alert: true });
       }
       const isLang = data.startsWith("edit_lang_");
       const val = data.slice(isLang ? "edit_lang_".length : "edit_qual_".length);
       const patch: any = isLang ? { language: val } : { quality: val };
       const { movie, error } = await updateMovie(pend.id, patch);
       await clearPendingUpload(uid);
-      if (!movie) return ctx.answerCallbackQuery({ text: `❌ ${error || "Failed"}`, show_alert: true });
-      await ctx.answerCallbackQuery({ text: `✅ Updated ${isLang ? "language" : "quality"}` });
+      if (!movie) {
+        return ctx.answerCallbackQuery({ text: `❌ Update failed: ${error || "Unknown error"}`, show_alert: true });
+      }
+      // FIX 3: answerCallbackQuery BEFORE ctx.reply
+      await ctx.answerCallbackQuery({ text: `✅ ${isLang ? "Language" : "Quality"} updated!` });
       return ctx.reply(
-        `✅ *Updated!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
+        `✅ *Updated Successfully!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
         `📅 ${movie.year ?? "—"}  |  🌐 ${movie.language ?? "—"}  |  📺 ${movie.quality ?? "—"}`,
         { parse_mode: "Markdown" },
       );
     }
 
-    // upload steps
+    // ─── FIX 2: Upload step callbacks ────────────────────────────────────────
     if (data.startsWith("ul_lang_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
-      if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload", show_alert: true });
+      if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload. Pehle file bhejein.", show_alert: true });
       pend.language = data.slice("ul_lang_".length);
       pend.step = "quality";
+      // FIX 2: Save pend to DB before showing next step
       await setPendingUpload(uid, pend);
-      await ctx.answerCallbackQuery({ text: `Language: ${pend.language}` });
+      await ctx.answerCallbackQuery({ text: `✅ Language: ${pend.language}` });
       const kb = new InlineKeyboard()
         .text("360p", "ul_qual_360p").text("480p", "ul_qual_480p").row()
         .text("720p", "ul_qual_720p").text("1080p", "ul_qual_1080p").row()
         .text("4K UHD", "ul_qual_4K").text("HDR", "ul_qual_HDR");
-      return ctx.reply("📺 *Step 4/4:* Select quality:", { parse_mode: "Markdown", reply_markup: kb });
+      return ctx.reply(
+        `✅ Language: *${pend.language}*\n\n📺 *Step 4/4:* Quality select karo:`,
+        { parse_mode: "Markdown", reply_markup: kb }
+      );
     }
+
     if (data.startsWith("ul_qual_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
-      if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload", show_alert: true });
+      if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload. Pehle file bhejein.", show_alert: true });
       pend.quality = data.slice("ul_qual_".length);
-      await ctx.answerCallbackQuery({ text: `Quality: ${pend.quality}` });
-      return finishUpload(ctx, pend);
+      // FIX 2: Save quality to DB before finishUpload (ensures data integrity)
+      await setPendingUpload(uid, pend);
+      await ctx.answerCallbackQuery({ text: `✅ Quality: ${pend.quality} — Saving...` });
+      return finishUpload(ctx, pend, uid);
     }
 
     if (data.startsWith("send_")) {
@@ -1001,7 +1107,7 @@ export function createBot(): Bot {
         `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
         `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
         `💡 *3x Fast Download chahiye? Website visit karein ek baar!*\n` +
-        `⏱️ *Auto-deletes in 3 min — forward & save karein.*`;
+        `⏱️ *Auto-deletes in 5 min — forward & save karein.*`;
       const kb = new InlineKeyboard()
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
         .url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
@@ -1088,21 +1194,22 @@ export function createBot(): Bot {
       return;
     }
 
-    // fulfill pending request
     if (data.startsWith("rdi_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const id = Number(data.slice("rdi_".length));
       const req = await fulfillRequest(id);
       if (!req) return ctx.answerCallbackQuery({ text: "❌ Request not found", show_alert: true });
+      // FIX: Strip year from request title for movie search
+      const titleForSearch = req.title.replace(/\s*\(\d{4}\)\s*$/, "").trim();
       const all = await fetchAllMovies();
-      const matched = searchMovies(all, req.title);
+      const matched = searchMovies(all, titleForSearch);
       if (!matched.length) {
         try {
           await ctx.api.sendMessage(req.user_id,
             `📩 *Aapki Request Update!*\n\n🎬 *${escapeMarkdown(req.title)}*\n\n✅ Admin ne aapki request dekh li hai!\n⏳ Movie jaldi upload hogi.`,
             { parse_mode: "Markdown" });
         } catch {}
-        return ctx.answerCallbackQuery({ text: "✅ User notified" });
+        return ctx.answerCallbackQuery({ text: "✅ User notified — movie not yet in DB" });
       }
       const m = matched[0];
       const dmKb = new InlineKeyboard()
@@ -1152,8 +1259,6 @@ export function createBot(): Bot {
     return ctx.answerCallbackQuery();
   });
 
-  // suppress unused warnings
   void PRIMARY_ADMIN;
-
   return bot;
 }

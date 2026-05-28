@@ -8,6 +8,10 @@ export const BOT_TOKEN = () => required("BOT_TOKEN");
 export const TMDB_API_KEY = () => required("TMDB_API_KEY");
 export const CHANNEL = () => process.env.CHANNEL || "@cinebotbackupgroup";
 export const CHANNEL_USERNAME = () => (process.env.CHANNEL || "@cinebotbackupgroup").replace("@", "");
+// Backup / secondary group users can also join to pass force-join
+export const BACKUP_CHANNEL = () => process.env.BACKUP_CHANNEL || "@cinebotbook";
+export const BACKUP_CHANNEL_USERNAME = () =>
+  (process.env.BACKUP_CHANNEL || "@cinebotbook").replace("@", "");
 export const BOT_USERNAME = () => process.env.BOT_USERNAME || "cineradarai_bot";
 
 export const ADMIN_IDS = (): Set<number> =>

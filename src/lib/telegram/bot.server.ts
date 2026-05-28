@@ -690,6 +690,25 @@ export function createBot(): Bot {
       const pend = await getPendingUpload(uid);
       if (pend) {
         const text = sanitize(msg.text);
+        // ── edit-mode value capture ──
+        if (pend.mode === "edit" && pend.step === "value" && pend.field) {
+          const patch: any = {};
+          if (pend.field === "year") {
+            const y = Number(text);
+            if (!Number.isFinite(y)) return ctx.reply("❌ Year must be a number.");
+            patch.year = y;
+          } else {
+            patch[pend.field] = text;
+          }
+          const { movie, error } = await updateMovie(pend.id, patch);
+          await clearPendingUpload(uid);
+          if (!movie) return ctx.reply(`❌ Edit failed: \`${error || "unknown"}\``, { parse_mode: "Markdown" });
+          return ctx.reply(
+            `✅ *Updated!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
+            `📅 ${movie.year ?? "—"}  |  🌐 ${movie.language ?? "—"}  |  📺 ${movie.quality ?? "—"}`,
+            { parse_mode: "Markdown" },
+          );
+        }
         if (pend.step === "name") {
           pend.name = text; pend.step = "year";
           await setPendingUpload(uid, pend);

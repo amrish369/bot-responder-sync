@@ -578,7 +578,28 @@ export function createBot(): Bot {
 
   bot.command("edit", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
-    await ctx.reply(`✏️ /edit currently lets you delete and re-upload — pure edit-in-place is being migrated. Use /delete <id> and re-upload.`);
+    const arg = (ctx.message?.text ?? "").replace("/edit", "").trim();
+    const id = Number(arg);
+    if (!Number.isFinite(id)) {
+      return ctx.reply(
+        `✏️ *Edit Movie*\n\nUsage: \`/edit <movieId>\`\n\nUse /search to find IDs.`,
+        { parse_mode: "Markdown" },
+      );
+    }
+    const m = await fetchMovieById(id);
+    if (!m) return ctx.reply("❌ Movie not found.");
+    await setPendingUpload(ctx.from!.id, { mode: "edit", id, step: "field" });
+    const kb = new InlineKeyboard()
+      .text("📝 Title", `edit_field_title`).text("📅 Year", `edit_field_year`).row()
+      .text("🌐 Language", `edit_field_language`).text("📺 Quality", `edit_field_quality`).row()
+      .text("❌ Cancel", "edit_cancel");
+    return ctx.reply(
+      `✏️ *Edit Movie \`${m.id}\`*\n\n` +
+      `🎬 ${escapeMarkdown(m.title)}\n` +
+      `📅 ${m.year ?? "—"}  |  🌐 ${m.language ?? "—"}  |  📺 ${m.quality ?? "—"}\n\n` +
+      `Kaunsa field edit karna hai?`,
+      { parse_mode: "Markdown", reply_markup: kb },
+    );
   });
 
   // ─── new_chat_members / my_chat_member ───

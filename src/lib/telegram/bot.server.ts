@@ -85,7 +85,8 @@ function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.reply(text, opts).catch(() => null);
-  if (!isA && msg && ctx.chat?.id) {
+  // Only auto-delete in private DM — never delete group chat messages
+  if (!isA && msg && ctx.chat?.id && ctx.chat?.type === "private") {
     scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
@@ -93,7 +94,7 @@ async function tempReply(ctx: Context, text: string, opts: any = {}) {
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.replyWithPhoto(photo, opts).catch(() => null);
-  if (!isA && msg && ctx.chat?.id) {
+  if (!isA && msg && ctx.chat?.id && ctx.chat?.type === "private") {
     scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;

@@ -30,10 +30,25 @@ export async function fetchMovieById(id: number): Promise<MovieRow | null> {
   return (data as MovieRow) ?? null;
 }
 
-export async function insertMovie(m: Omit<MovieRow, "id" | "created_at">): Promise<MovieRow | null> {
+export async function insertMovie(
+  m: Omit<MovieRow, "id" | "created_at">,
+): Promise<{ movie: MovieRow | null; error: string | null }> {
   const { data, error } = await supabaseAdmin.from("movies").insert(m).select().single();
-  if (error) { console.error("[DB] insertMovie", error.message); return null; }
-  return data as MovieRow;
+  if (error) {
+    console.error("[DB] insertMovie", error.message);
+    return { movie: null, error: error.message };
+  }
+  return { movie: data as MovieRow, error: null };
+}
+
+export async function updateMovie(
+  id: number,
+  patch: Partial<Omit<MovieRow, "id" | "created_at">>,
+): Promise<{ movie: MovieRow | null; error: string | null }> {
+  const { data, error } = await supabaseAdmin
+    .from("movies").update(patch).eq("id", id).select().single();
+  if (error) return { movie: null, error: error.message };
+  return { movie: data as MovieRow, error: null };
 }
 
 export async function deleteMovie(id: number): Promise<void> {

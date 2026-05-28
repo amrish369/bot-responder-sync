@@ -907,6 +907,67 @@ export function createBot(): Bot {
       return sendRandomMovie(ctx, mood);
     }
 
+    // ── edit mode callbacks ──
+    if (data === "edit_cancel") {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      await clearPendingUpload(uid);
+      try { await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }); } catch {}
+      return ctx.answerCallbackQuery({ text: "Edit cancelled" });
+    }
+    if (data.startsWith("edit_field_")) {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      const pend = await getPendingUpload(uid);
+      if (!pend || pend.mode !== "edit") {
+        return ctx.answerCallbackQuery({ text: "❌ No active edit. Use /edit <id>", show_alert: true });
+      }
+      const field = data.slice("edit_field_".length);
+      if (field === "language") {
+        pend.field = "language"; pend.step = "value";
+        await setPendingUpload(uid, pend);
+        const kb = new InlineKeyboard()
+          .text("🇮🇳 Hindi", "edit_lang_Hindi").text("🇺🇸 English", "edit_lang_English").row()
+          .text("🎭 Dual Audio", "edit_lang_Dual Audio").text("🌍 Multi Audio", "edit_lang_Multi Audio").row()
+          .text("🎬 Telugu", "edit_lang_Telugu").text("🎬 Tamil", "edit_lang_Tamil").row()
+          .text("🎬 Malayalam", "edit_lang_Malayalam").text("🎬 Kannada", "edit_lang_Kannada");
+        await ctx.answerCallbackQuery();
+        return ctx.reply("🌐 Select new language:", { reply_markup: kb });
+      }
+      if (field === "quality") {
+        pend.field = "quality"; pend.step = "value";
+        await setPendingUpload(uid, pend);
+        const kb = new InlineKeyboard()
+          .text("360p", "edit_qual_360p").text("480p", "edit_qual_480p").row()
+          .text("720p", "edit_qual_720p").text("1080p", "edit_qual_1080p").row()
+          .text("4K UHD", "edit_qual_4K").text("HDR", "edit_qual_HDR");
+        await ctx.answerCallbackQuery();
+        return ctx.reply("📺 Select new quality:", { reply_markup: kb });
+      }
+      // title / year — free text
+      pend.field = field; pend.step = "value";
+      await setPendingUpload(uid, pend);
+      await ctx.answerCallbackQuery();
+      return ctx.reply(`✏️ Type new *${field}*:`, { parse_mode: "Markdown" });
+    }
+    if (data.startsWith("edit_lang_") || data.startsWith("edit_qual_")) {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      const pend = await getPendingUpload(uid);
+      if (!pend || pend.mode !== "edit") {
+        return ctx.answerCallbackQuery({ text: "❌ No active edit", show_alert: true });
+      }
+      const isLang = data.startsWith("edit_lang_");
+      const val = data.slice(isLang ? "edit_lang_".length : "edit_qual_".length);
+      const patch: any = isLang ? { language: val } : { quality: val };
+      const { movie, error } = await updateMovie(pend.id, patch);
+      await clearPendingUpload(uid);
+      if (!movie) return ctx.answerCallbackQuery({ text: `❌ ${error || "Failed"}`, show_alert: true });
+      await ctx.answerCallbackQuery({ text: `✅ Updated ${isLang ? "language" : "quality"}` });
+      return ctx.reply(
+        `✅ *Updated!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
+        `📅 ${movie.year ?? "—"}  |  🌐 ${movie.language ?? "—"}  |  📺 ${movie.quality ?? "—"}`,
+        { parse_mode: "Markdown" },
+      );
+    }
+
     // upload steps
     if (data.startsWith("ul_lang_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });

@@ -823,12 +823,16 @@ export function createBot(): Bot {
   }
 
   async function finishUpload(ctx: Context, pend: any) {
-    const inserted = await insertMovie({
+    const { movie: inserted, error: insErr } = await insertMovie({
       title: pend.name, file_id: pend.file_id, year: pend.year ? Number(pend.year) : null,
       language: pend.language, quality: pend.quality, type: null, added_by: ctx.from!.id,
     });
     await clearPendingUpload(ctx.from!.id);
-    if (!inserted) return ctx.reply("❌ Failed to save movie.");
+    if (!inserted) {
+      return ctx.reply(`❌ Failed to save movie.\n\nReason: \`${insErr || "unknown"}\``, {
+        parse_mode: "Markdown",
+      });
+    }
     const caption =
       `✅ *Movie Saved!*\n\n` +
       `🎬 ${escapeMarkdown(pend.name)} (${pend.year})\n` +

@@ -45,6 +45,7 @@ import {
   storePayload,
   trackUser,
   unbanUser,
+  updateMovie,
   userDisplayName,
   type MovieRow,
 } from "./db.server";

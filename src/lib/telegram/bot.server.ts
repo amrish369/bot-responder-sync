@@ -256,6 +256,10 @@ export function createBot(): Bot {
       });
     }
 
+    // Skip force-join in group chats — only enforce in private DM.
+    const chatType = ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type;
+    if (chatType && chatType !== "private") return next();
+
     const joined = await isChannelMember(bot, uid);
     if (!joined) {
       if (ctx.callbackQuery) {

@@ -175,25 +175,30 @@ function mergeKeyboards(kb1: InlineKeyboard, kb2: InlineKeyboard): InlineKeyboar
 
 // ── force join ──
 async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  try {
-    const member = await bot.api.getChatMember(CHANNEL(), userId);
-    return ["member", "administrator", "creator"].includes(member.status);
-  } catch { return false; }
+  const checks = [CHANNEL(), BACKUP_CHANNEL()];
+  let errors = 0;
+  for (const ch of checks) {
+    try {
+      const m = await bot.api.getChatMember(ch, userId);
+      if (["member", "administrator", "creator"].includes(m.status)) return true;
+    } catch { errors++; }
+  }
+  // If bot can't check (not admin in any channel), don't block users.
+  if (errors === checks.length) return true;
+  return false;
 }
 async function sendForceJoinMsg(ctx: Context) {
   const kb = new InlineKeyboard()
-    .url("📢 Channel Join Karein", `https://t.me/${CHANNEL_USERNAME()}`)
+    .url("📢 Main Group Join Karein", `https://t.me/${CHANNEL_USERNAME()}`)
+    .row()
+    .url("🗂️ Backup Group Join Karein", `https://t.me/${BACKUP_CHANNEL_USERNAME()}`)
     .row()
     .text("✅ Join Kar Li — Verify", "verify_join");
   await ctx.reply(
-    `🔒 *CineRadar AI Use Karne Ke Liye Pehle Channel Join Karein!*\n\n` +
-    `📢 Channel: @${CHANNEL_USERNAME()}\n\n` +
-    `Channel join karne ke baad *"✅ Join Kar Li — Verify"* button dabaao.\n\n` +
-    `_Join karne ke fayde:_\n` +
-    `• 🎬 Daily new movies ki update\n` +
-    `• 🗳️ Daily movie debate\n` +
-    `• 📖 Daily bot usage guide\n` +
-    `• ⚡ 3x Fast Download tips`,
+    `🔒 *Bot Use Karne Ke Liye Pehle Group Join Karein!*\n\n` +
+    `📢 Main Group: @${CHANNEL_USERNAME()}\n` +
+    `🗂️ Backup Group: @${BACKUP_CHANNEL_USERNAME()}\n\n` +
+    `Koi ek group join karke *"✅ Join Kar Li — Verify"* button dabaao.`,
     { parse_mode: "Markdown", reply_markup: kb }
   ).catch(() => {});
 }

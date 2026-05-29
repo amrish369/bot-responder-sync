@@ -1,0 +1,1 @@
+SELECT setval('public.movies_id_seq', GREATEST((SELECT COALESCE(MAX(id), 1) FROM public.movies), 1), true);

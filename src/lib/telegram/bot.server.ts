@@ -64,7 +64,51 @@ function escapeMarkdown(t: string | undefined): string {
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return "";
   const mb = bytes / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+}
+
+// Auto-detect quality bucket from file size in bytes.
+// 1MB–800MB → 480p · 801MB–1.3GB → 720p · 1.31GB–2.5GB → 1080p · >2.5GB → 4K
+function qualityFromSize(bytes: number | null | undefined): string | null {
+  if (!bytes || bytes <= 0) return null;
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) return null;
+  if (mb <= 800) return "480p";
+  if (mb <= 1331) return "720p";
+  if (mb <= 2560) return "1080p";
+  return "4K";
+}
+
+const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
+function parseCaption(raw: string): { name: string; year: number | null; language: string | null; quality: string | null } {
+  const original = (raw || "").replace(/[\r\n]+/g, " ").trim();
+  if (!original) return { name: "", year: null, language: null, quality: null };
+  let s = original;
+  const yearM = s.match(/\b(19\d{2}|20\d{2})\b/);
+  const year = yearM ? Number(yearM[0]) : null;
+  if (yearM) s = s.replace(yearM[0], " ");
+  let quality: string | null = null;
+  for (const q of QUALITY_TOKENS) {
+    const re = new RegExp(`\\b${q}\\b`, "i");
+    if (re.test(s)) {
+      const low = q.toLowerCase();
+      quality = low === "4k" || low === "uhd" ? "4K" : low === "hdr" ? "HDR" : q.toLowerCase();
+      s = s.replace(re, " ");
+      break;
+    }
+  }
+  let language: string | null = null;
+  const sortedLangs = [...KNOWN_LANGUAGES].sort((a, b) => b.length - a.length);
+  for (const lang of sortedLangs) {
+    const re = new RegExp(`\\b${lang}\\b`, "i");
+    if (re.test(s)) {
+      language = lang.charAt(0).toUpperCase() + lang.slice(1);
+      s = s.replace(re, " ");
+      break;
+    }
+  }
+  const name = s.replace(/[._\-\[\]\(\)]+/g, " ").replace(/\s+/g, " ").trim();
+  return { name, year, language, quality };
 }
 function movieBtnLabel(m: MovieRow): string {
   const parts: (string | number)[] = [m.title];
@@ -220,14 +264,18 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   // Safely parse year
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
 
+  // Auto-detect quality from size if missing
+  const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
+
   const { movie: inserted, error: insErr } = await insertMovie({
     title: pend.name.trim(),
     file_id: pend.file_id,
     year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
     language: pend.language ?? null,
-    quality: pend.quality ?? null,
+    quality: finalQuality,
     type: null,
     added_by: adminId,
+    file_size: pend.file_size ?? null,
   });
   await clearPendingUpload(adminId);
 
@@ -238,15 +286,60 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     );
   }
 
+  const sizeLabel = fmtSize(pend.file_size);
   const caption =
     `✅ *Movie Saved!*\n\n` +
     `🎬 ${escapeMarkdown(pend.name)} (${yearNum || "?"})\n` +
-    `🌐 ${pend.language || "N/A"} | 📺 ${pend.quality || "N/A"}\n` +
+    `🌐 ${pend.language || "N/A"} | 📺 ${finalQuality || "N/A"}` +
+    (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n` +
     `🆔 ID: \`${inserted.id}\``;
   const kb = new InlineKeyboard()
     .text("📢 Post to Channel", `post_to_channel_${inserted.id}`)
     .text("❌ No", "dismiss_post");
-  return ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
+  const reply = await ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
+
+  // ── Auto-deliver to users with matching pending requests (fuzzy) ──
+  try {
+    const pending = await listPendingRequests();
+    const fuse = new Fuse(pending, {
+      keys: ["title"],
+      threshold: 0.45,
+      ignoreLocation: true,
+      minMatchCharLength: 3,
+    });
+    const matched = fuse.search(inserted.title).map((r) => r.item);
+    let delivered = 0;
+    const seen = new Set<number>();
+    for (const req of matched) {
+      if (seen.has(req.user_id)) continue;
+      seen.add(req.user_id);
+      try {
+        const dmKb = new InlineKeyboard()
+          .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
+          .url("📷 Instagram (Optional)", INSTAGRAM_URL);
+        await ctx.api.sendVideo(req.user_id, inserted.file_id, {
+          caption:
+            `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
+            `🎬 *${escapeMarkdown(inserted.title)}* (${inserted.year || "?"})\n` +
+            `🌐 ${inserted.language || "N/A"} | 📺 ${inserted.quality || "N/A"}` +
+            (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
+            `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
+          parse_mode: "Markdown",
+          reply_markup: dmKb,
+        });
+        await fulfillRequest(req.id);
+        delivered++;
+      } catch (e) {
+        console.error("[auto-deliver]", req.user_id, (e as Error).message);
+      }
+    }
+    if (delivered > 0) {
+      await ctx.reply(`📨 Auto-delivered to ${delivered} requesting user(s).`).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[auto-deliver scan]", (e as Error).message);
+  }
+  return reply;
 }
 
 // ── bot factory ──
@@ -381,9 +474,9 @@ export function createBot(): Bot {
       `🔮 /upcoming — Upcoming Indian movies\n` +
       `📋 /myrequests — Track your requests\n\n` +
       `⚡ *3x Fast Download:* Website par ek baar visit karein\n\n` +
-      `👑 *Admin only:* /edit, /stats, /broadcast, /delete, /ban, /unban\n` +
-      `               /pending, /search, /dm\n` +
-      `               /convo, /endconvo`;
+      `👑 *Admin only:* /edit, /stats, /broadcast, /promote, /delete, /ban, /unban\n` +
+      `               /pending, /search, /dm, /reply <reqId> <msg>\n` +
+      `               /convo, /endconvo, /fastupload`;
     await tempReply(ctx, helpText, { parse_mode: "Markdown" });
   });
 
@@ -619,6 +712,75 @@ export function createBot(): Bot {
     await ctx.reply(`🛑 Conversation ended.`);
   });
 
+  // ── /fastupload — toggle one-shot caption-parsed upload mode ──
+  bot.command("fastupload", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const uid = ctx.from!.id;
+    const existing = await getPendingUpload(uid);
+    if (existing?.mode === "fastupload") {
+      await clearPendingUpload(uid);
+      return ctx.reply("🛑 *Fast Upload mode OFF.*", { parse_mode: "Markdown" });
+    }
+    await clearPendingUpload(uid);
+    await setPendingUpload(uid, { mode: "fastupload" });
+    return ctx.reply(
+      `⚡ *Fast Upload mode ON.*\n\n` +
+      `Ab koi bhi video/document caption ke saath bhejo, e.g.:\n` +
+      `\`War 2019 720p Hindi\`\n\n` +
+      `Title / year / quality / language auto-detect ho jayenge. File size se quality bhi auto-fill hogi.\n\n` +
+      `Off karne ke liye /fastupload dobara bhejein.`,
+      { parse_mode: "Markdown" }
+    );
+  });
+
+  // ── /promote — broadcast promotional message to main + backup channel ──
+  bot.command("promote", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const text = (ctx.message?.text ?? "").replace("/promote", "").trim();
+    if (!text) {
+      return ctx.reply(
+        `Usage: \`/promote <message>\`\n\nMessage main + backup group dono mein post hoga.`,
+        { parse_mode: "Markdown" }
+      );
+    }
+    const targets = [CHANNEL(), BACKUP_CHANNEL()];
+    const kb = new InlineKeyboard()
+      .url("🎬 Movies Bot — Start", `https://t.me/${BOT_USERNAME()}?start=promo`).row()
+      .url("⚡ 3x Fast Download", WEBSITE_URL);
+    let ok = 0, fail: string[] = [];
+    for (const ch of targets) {
+      try {
+        await ctx.api.sendMessage(ch,
+          `📣 *Promotion*\n\n${escapeMarkdown(text)}\n\n— 🎬 CineRadar AI`,
+          { parse_mode: "Markdown", reply_markup: kb });
+        ok++;
+      } catch (e) { fail.push(`${ch}: ${(e as Error).message}`); }
+    }
+    return ctx.reply(`✅ Posted to ${ok}/${targets.length}` + (fail.length ? `\n❌ ${fail.join("\n")}` : ""));
+  });
+
+  // ── /reply <reqId> <message> — custom reply to a request ──
+  bot.command("reply", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const args = (ctx.message?.text ?? "").replace("/reply", "").trim();
+    const sp = args.indexOf(" ");
+    if (sp === -1) return ctx.reply("Usage: `/reply <requestId> <message>`", { parse_mode: "Markdown" });
+    const reqId = Number(args.slice(0, sp).trim());
+    const message = args.slice(sp + 1).trim();
+    if (!Number.isFinite(reqId) || !message) return ctx.reply("❌ Valid requestId + message dein.");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: req } = await supabaseAdmin.from("requests").select("*").eq("id", reqId).maybeSingle();
+    if (!req) return ctx.reply("❌ Request not found.");
+    try {
+      await ctx.api.sendMessage(req.user_id,
+        `📩 *Admin Reply* — aapki request: _${escapeMarkdown(req.title)}_\n\n${escapeMarkdown(message)}`,
+        { parse_mode: "Markdown" });
+      return ctx.reply(`✅ Reply bhej di to ${req.user_id} (${escapeMarkdown(req.title)})`, { parse_mode: "Markdown" });
+    } catch (e) {
+      return ctx.reply(`❌ Failed: ${(e as Error).message}`);
+    }
+  });
+
   bot.command("edit", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const arg = (ctx.message?.text ?? "").replace("/edit", "").trim();
@@ -734,14 +896,55 @@ export function createBot(): Bot {
     // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
+      const fileSize = msg.video?.file_size ?? msg.document?.file_size ?? null;
+      const caption = (msg.caption ?? "").trim();
       if (!fileId) {
         return ctx.reply("❌ File ID nahi mila. Dobara try karein.");
       }
-      // Clear any existing pending state before starting fresh upload
+
+      const sizeLabel = fmtSize(fileSize);
+      const autoQual = qualityFromSize(fileSize);
+
+      // Check if admin previously entered /fastupload mode
+      const existing = await getPendingUpload(uid);
+      const fastMode = existing?.mode === "fastupload";
+
+      // FAST UPLOAD: parse caption fully and save in one shot
+      if (fastMode || (caption && /\b(19\d{2}|20\d{2})\b/.test(caption))) {
+        const parsed = parseCaption(caption);
+        if (parsed.name) {
+          await clearPendingUpload(uid);
+          const pend = {
+            mode: "upload",
+            file_id: fileId,
+            file_size: fileSize,
+            name: parsed.name,
+            year: parsed.year ? String(parsed.year) : null,
+            language: parsed.language,
+            quality: parsed.quality || autoQual,
+          };
+          return finishUpload(ctx, pend, uid);
+        }
+        if (fastMode) {
+          return ctx.reply(
+            "⚠️ /fastupload mode ON hai par caption se name parse nahi hua.\nCaption format: `War 2019 720p Hindi`",
+            { parse_mode: "Markdown" }
+          );
+        }
+      }
+
+      // Step-by-step (auto-detect quality from size)
       await clearPendingUpload(uid);
-      await setPendingUpload(uid, { mode: "upload", step: "name", file_id: fileId });
+      await setPendingUpload(uid, {
+        mode: "upload", step: "name", file_id: fileId, file_size: fileSize,
+      });
       return ctx.reply(
-        "✅ *File Received!*\n\n📝 *Step 1/4:* Movie ka naam type karein:\n\n_Upload cancel karne ke liye /edit ya koi command use karein_",
+        `✅ *File Received!*` +
+        (sizeLabel ? ` (${sizeLabel})` : "") +
+        (autoQual ? ` → 📺 Auto-detected: *${autoQual}*` : "") +
+        `\n\n📝 *Step 1/3:* Movie ka naam type karein:\n\n` +
+        `_Tip: caption mein \`Name 2019 720p Hindi\` likho to ek-shot save hoga._\n` +
+        `_Ya /fastupload toggle karein._`,
         { parse_mode: "Markdown" }
       );
     }
@@ -807,7 +1010,7 @@ export function createBot(): Bot {
               .text("🎬 Telugu", "ul_lang_Telugu").text("🎬 Tamil", "ul_lang_Tamil").row()
               .text("🎬 Malayalam", "ul_lang_Malayalam").text("🎬 Kannada", "ul_lang_Kannada").row()
               .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
-            return ctx.reply("🌐 *Step 3/4:* Language select karo:", { parse_mode: "Markdown", reply_markup: kb });
+            return ctx.reply("🌐 *Step 3/3:* Language select karo (quality file size se auto-detect ho jayegi):", { parse_mode: "Markdown", reply_markup: kb });
           }
           // FIX 2: If step is "language", remind admin to click button
           if (pend.step === "language") {
@@ -1073,8 +1276,15 @@ export function createBot(): Bot {
       const pend = await getPendingUpload(uid);
       if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload. Pehle file bhejein.", show_alert: true });
       pend.language = data.slice("ul_lang_".length);
+      const autoQ = qualityFromSize(pend.file_size);
+      if (autoQ) {
+        pend.quality = autoQ;
+        await setPendingUpload(uid, pend);
+        await ctx.answerCallbackQuery({ text: `✅ ${pend.language} · 📺 Auto: ${autoQ}` });
+        return finishUpload(ctx, pend, uid);
+      }
+      // Fallback: ask manually if size missing
       pend.step = "quality";
-      // FIX 2: Save pend to DB before showing next step
       await setPendingUpload(uid, pend);
       await ctx.answerCallbackQuery({ text: `✅ Language: ${pend.language}` });
       const kb = new InlineKeyboard()
@@ -1082,7 +1292,7 @@ export function createBot(): Bot {
         .text("720p", "ul_qual_720p").text("1080p", "ul_qual_1080p").row()
         .text("4K UHD", "ul_qual_4K").text("HDR", "ul_qual_HDR");
       return ctx.reply(
-        `✅ Language: *${pend.language}*\n\n📺 *Step 4/4:* Quality select karo:`,
+        `✅ Language: *${pend.language}*\n\n📺 Quality select karo (file size missing, auto-detect fail):`,
         { parse_mode: "Markdown", reply_markup: kb }
       );
     }
@@ -1178,20 +1388,41 @@ export function createBot(): Bot {
       const requestName = year ? `${title} (${year})` : title;
       const already = await findPendingRequest(uid, requestName);
       if (already) return ctx.answerCallbackQuery({ text: `⚠️ "${requestName}" already requested!`, show_alert: true });
-      await insertRequest(uid, ctx.from.username || null, requestName);
+      const inserted = await insertRequest(uid, ctx.from.username || null, requestName);
       await ctx.answerCallbackQuery({ text: `✅ Request sent: ${requestName.slice(0, 40)}` });
       await tempReply(ctx,
         `✅ *Request Bhej Di!*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
         (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") + `\n📋 /myrequests se track karo.`,
         { parse_mode: "Markdown" });
       for (const adminId of ADMIN_IDS()) {
+        const adminKb = new InlineKeyboard()
+          .text("💬 Custom Reply", `req_reply_${uid}`).row();
+        if (inserted) adminKb.text(`✅ Fulfill #${inserted.id}`, `rdi_${inserted.id}`);
         await ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
           `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
-          { parse_mode: "Markdown" }).catch(() => {});
+          { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
       return;
+    }
+
+    // ── Custom reply: admin clicks "Custom Reply" → start convo with that user ──
+    if (data.startsWith("req_reply_")) {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      const targetId = Number(data.slice("req_reply_".length));
+      if (!Number.isFinite(targetId)) return ctx.answerCallbackQuery({ text: "❌ Invalid user" });
+      await setConvo(uid, targetId);
+      await ctx.answerCallbackQuery({ text: `💬 Convo started with ${targetId}` });
+      try {
+        await ctx.api.sendMessage(targetId,
+          `📣 *CineRadar Admin aapse baat karna chahte hain — aapki request ke baare mein.*\n\nSeedha yahaan reply karein.`,
+          { parse_mode: "Markdown" });
+      } catch {}
+      return ctx.reply(
+        `💬 *Convo started.* Ab aap jo type karenge wo seedha user (${targetId}) ko jayega.\n\n🛑 /endconvo se band karein.`,
+        { parse_mode: "Markdown" }
+      );
     }
 
     if (data.startsWith("rdi_")) {

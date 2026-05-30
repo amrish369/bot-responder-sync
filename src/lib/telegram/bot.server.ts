@@ -1207,8 +1207,15 @@ export function createBot(): Bot {
       const pend = await getPendingUpload(uid);
       if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload. Pehle file bhejein.", show_alert: true });
       pend.language = data.slice("ul_lang_".length);
+      const autoQ = qualityFromSize(pend.file_size);
+      if (autoQ) {
+        pend.quality = autoQ;
+        await setPendingUpload(uid, pend);
+        await ctx.answerCallbackQuery({ text: `✅ ${pend.language} · 📺 Auto: ${autoQ}` });
+        return finishUpload(ctx, pend, uid);
+      }
+      // Fallback: ask manually if size missing
       pend.step = "quality";
-      // FIX 2: Save pend to DB before showing next step
       await setPendingUpload(uid, pend);
       await ctx.answerCallbackQuery({ text: `✅ Language: ${pend.language}` });
       const kb = new InlineKeyboard()
@@ -1216,7 +1223,7 @@ export function createBot(): Bot {
         .text("720p", "ul_qual_720p").text("1080p", "ul_qual_1080p").row()
         .text("4K UHD", "ul_qual_4K").text("HDR", "ul_qual_HDR");
       return ctx.reply(
-        `✅ Language: *${pend.language}*\n\n📺 *Step 4/4:* Quality select karo:`,
+        `✅ Language: *${pend.language}*\n\n📺 Quality select karo (file size missing, auto-detect fail):`,
         { parse_mode: "Markdown", reply_markup: kb }
       );
     }

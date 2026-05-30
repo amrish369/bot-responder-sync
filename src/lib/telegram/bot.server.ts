@@ -1388,20 +1388,41 @@ export function createBot(): Bot {
       const requestName = year ? `${title} (${year})` : title;
       const already = await findPendingRequest(uid, requestName);
       if (already) return ctx.answerCallbackQuery({ text: `⚠️ "${requestName}" already requested!`, show_alert: true });
-      await insertRequest(uid, ctx.from.username || null, requestName);
+      const inserted = await insertRequest(uid, ctx.from.username || null, requestName);
       await ctx.answerCallbackQuery({ text: `✅ Request sent: ${requestName.slice(0, 40)}` });
       await tempReply(ctx,
         `✅ *Request Bhej Di!*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
         (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") + `\n📋 /myrequests se track karo.`,
         { parse_mode: "Markdown" });
       for (const adminId of ADMIN_IDS()) {
+        const adminKb = new InlineKeyboard()
+          .text("💬 Custom Reply", `req_reply_${uid}`).row();
+        if (inserted) adminKb.text(`✅ Fulfill #${inserted.id}`, `rdi_${inserted.id}`);
         await ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
           `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
-          { parse_mode: "Markdown" }).catch(() => {});
+          { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
       return;
+    }
+
+    // ── Custom reply: admin clicks "Custom Reply" → start convo with that user ──
+    if (data.startsWith("req_reply_")) {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      const targetId = Number(data.slice("req_reply_".length));
+      if (!Number.isFinite(targetId)) return ctx.answerCallbackQuery({ text: "❌ Invalid user" });
+      await setConvo(uid, targetId);
+      await ctx.answerCallbackQuery({ text: `💬 Convo started with ${targetId}` });
+      try {
+        await ctx.api.sendMessage(targetId,
+          `📣 *CineRadar Admin aapse baat karna chahte hain — aapki request ke baare mein.*\n\nSeedha yahaan reply karein.`,
+          { parse_mode: "Markdown" });
+      } catch {}
+      return ctx.reply(
+        `💬 *Convo started.* Ab aap jo type karenge wo seedha user (${targetId}) ko jayega.\n\n🛑 /endconvo se band karein.`,
+        { parse_mode: "Markdown" }
+      );
     }
 
     if (data.startsWith("rdi_")) {

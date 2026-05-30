@@ -827,14 +827,55 @@ export function createBot(): Bot {
     // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
+      const fileSize = msg.video?.file_size ?? msg.document?.file_size ?? null;
+      const caption = (msg.caption ?? "").trim();
       if (!fileId) {
         return ctx.reply("❌ File ID nahi mila. Dobara try karein.");
       }
-      // Clear any existing pending state before starting fresh upload
+
+      const sizeLabel = fmtSize(fileSize);
+      const autoQual = qualityFromSize(fileSize);
+
+      // Check if admin previously entered /fastupload mode
+      const existing = await getPendingUpload(uid);
+      const fastMode = existing?.mode === "fastupload";
+
+      // FAST UPLOAD: parse caption fully and save in one shot
+      if (fastMode || (caption && /\b(19\d{2}|20\d{2})\b/.test(caption))) {
+        const parsed = parseCaption(caption);
+        if (parsed.name) {
+          await clearPendingUpload(uid);
+          const pend = {
+            mode: "upload",
+            file_id: fileId,
+            file_size: fileSize,
+            name: parsed.name,
+            year: parsed.year ? String(parsed.year) : null,
+            language: parsed.language,
+            quality: parsed.quality || autoQual,
+          };
+          return finishUpload(ctx, pend, uid);
+        }
+        if (fastMode) {
+          return ctx.reply(
+            "⚠️ /fastupload mode ON hai par caption se name parse nahi hua.\nCaption format: `War 2019 720p Hindi`",
+            { parse_mode: "Markdown" }
+          );
+        }
+      }
+
+      // Step-by-step (auto-detect quality from size)
       await clearPendingUpload(uid);
-      await setPendingUpload(uid, { mode: "upload", step: "name", file_id: fileId });
+      await setPendingUpload(uid, {
+        mode: "upload", step: "name", file_id: fileId, file_size: fileSize,
+      });
       return ctx.reply(
-        "✅ *File Received!*\n\n📝 *Step 1/4:* Movie ka naam type karein:\n\n_Upload cancel karne ke liye /edit ya koi command use karein_",
+        `✅ *File Received!*` +
+        (sizeLabel ? ` (${sizeLabel})` : "") +
+        (autoQual ? ` → 📺 Auto-detected: *${autoQual}*` : "") +
+        `\n\n📝 *Step 1/3:* Movie ka naam type karein:\n\n` +
+        `_Tip: caption mein \`Name 2019 720p Hindi\` likho to ek-shot save hoga._\n` +
+        `_Ya /fastupload toggle karein._`,
         { parse_mode: "Markdown" }
       );
     }

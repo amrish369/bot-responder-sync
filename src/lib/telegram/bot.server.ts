@@ -712,6 +712,75 @@ export function createBot(): Bot {
     await ctx.reply(`🛑 Conversation ended.`);
   });
 
+  // ── /fastupload — toggle one-shot caption-parsed upload mode ──
+  bot.command("fastupload", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const uid = ctx.from!.id;
+    const existing = await getPendingUpload(uid);
+    if (existing?.mode === "fastupload") {
+      await clearPendingUpload(uid);
+      return ctx.reply("🛑 *Fast Upload mode OFF.*", { parse_mode: "Markdown" });
+    }
+    await clearPendingUpload(uid);
+    await setPendingUpload(uid, { mode: "fastupload" });
+    return ctx.reply(
+      `⚡ *Fast Upload mode ON.*\n\n` +
+      `Ab koi bhi video/document caption ke saath bhejo, e.g.:\n` +
+      `\`War 2019 720p Hindi\`\n\n` +
+      `Title / year / quality / language auto-detect ho jayenge. File size se quality bhi auto-fill hogi.\n\n` +
+      `Off karne ke liye /fastupload dobara bhejein.`,
+      { parse_mode: "Markdown" }
+    );
+  });
+
+  // ── /promote — broadcast promotional message to main + backup channel ──
+  bot.command("promote", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const text = (ctx.message?.text ?? "").replace("/promote", "").trim();
+    if (!text) {
+      return ctx.reply(
+        `Usage: \`/promote <message>\`\n\nMessage main + backup group dono mein post hoga.`,
+        { parse_mode: "Markdown" }
+      );
+    }
+    const targets = [CHANNEL(), BACKUP_CHANNEL()];
+    const kb = new InlineKeyboard()
+      .url("🎬 Movies Bot — Start", `https://t.me/${BOT_USERNAME()}?start=promo`).row()
+      .url("⚡ 3x Fast Download", WEBSITE_URL);
+    let ok = 0, fail: string[] = [];
+    for (const ch of targets) {
+      try {
+        await ctx.api.sendMessage(ch,
+          `📣 *Promotion*\n\n${escapeMarkdown(text)}\n\n— 🎬 CineRadar AI`,
+          { parse_mode: "Markdown", reply_markup: kb });
+        ok++;
+      } catch (e) { fail.push(`${ch}: ${(e as Error).message}`); }
+    }
+    return ctx.reply(`✅ Posted to ${ok}/${targets.length}` + (fail.length ? `\n❌ ${fail.join("\n")}` : ""));
+  });
+
+  // ── /reply <reqId> <message> — custom reply to a request ──
+  bot.command("reply", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const args = (ctx.message?.text ?? "").replace("/reply", "").trim();
+    const sp = args.indexOf(" ");
+    if (sp === -1) return ctx.reply("Usage: `/reply <requestId> <message>`", { parse_mode: "Markdown" });
+    const reqId = Number(args.slice(0, sp).trim());
+    const message = args.slice(sp + 1).trim();
+    if (!Number.isFinite(reqId) || !message) return ctx.reply("❌ Valid requestId + message dein.");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: req } = await supabaseAdmin.from("requests").select("*").eq("id", reqId).maybeSingle();
+    if (!req) return ctx.reply("❌ Request not found.");
+    try {
+      await ctx.api.sendMessage(req.user_id,
+        `📩 *Admin Reply* — aapki request: _${escapeMarkdown(req.title)}_\n\n${escapeMarkdown(message)}`,
+        { parse_mode: "Markdown" });
+      return ctx.reply(`✅ Reply bhej di to ${req.user_id} (${escapeMarkdown(req.title)})`, { parse_mode: "Markdown" });
+    } catch (e) {
+      return ctx.reply(`❌ Failed: ${(e as Error).message}`);
+    }
+  });
+
   bot.command("edit", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const arg = (ctx.message?.text ?? "").replace("/edit", "").trim();

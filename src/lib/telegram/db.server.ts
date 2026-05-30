@@ -10,6 +10,7 @@ export interface MovieRow {
   type: string | null;
   added_by: number | null;
   created_at: string;
+  file_size: number | null;
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {

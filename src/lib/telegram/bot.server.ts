@@ -474,9 +474,9 @@ export function createBot(): Bot {
       `🔮 /upcoming — Upcoming Indian movies\n` +
       `📋 /myrequests — Track your requests\n\n` +
       `⚡ *3x Fast Download:* Website par ek baar visit karein\n\n` +
-      `👑 *Admin only:* /edit, /stats, /broadcast, /delete, /ban, /unban\n` +
-      `               /pending, /search, /dm\n` +
-      `               /convo, /endconvo`;
+      `👑 *Admin only:* /edit, /stats, /broadcast, /promote, /delete, /ban, /unban\n` +
+      `               /pending, /search, /dm, /reply <reqId> <msg>\n` +
+      `               /convo, /endconvo, /fastupload`;
     await tempReply(ctx, helpText, { parse_mode: "Markdown" });
   });
 

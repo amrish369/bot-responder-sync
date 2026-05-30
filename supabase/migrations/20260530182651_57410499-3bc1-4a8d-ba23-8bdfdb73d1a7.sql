@@ -1,0 +1,1 @@
+ALTER TABLE public.movies ADD COLUMN IF NOT EXISTS file_size bigint;

@@ -64,7 +64,51 @@ function escapeMarkdown(t: string | undefined): string {
 function fmtSize(bytes: number | null | undefined): string {
   if (!bytes) return "";
   const mb = bytes / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
+}
+
+// Auto-detect quality bucket from file size in bytes.
+// 1MB–800MB → 480p · 801MB–1.3GB → 720p · 1.31GB–2.5GB → 1080p · >2.5GB → 4K
+function qualityFromSize(bytes: number | null | undefined): string | null {
+  if (!bytes || bytes <= 0) return null;
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1) return null;
+  if (mb <= 800) return "480p";
+  if (mb <= 1331) return "720p";
+  if (mb <= 2560) return "1080p";
+  return "4K";
+}
+
+const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
+function parseCaption(raw: string): { name: string; year: number | null; language: string | null; quality: string | null } {
+  const original = (raw || "").replace(/[\r\n]+/g, " ").trim();
+  if (!original) return { name: "", year: null, language: null, quality: null };
+  let s = original;
+  const yearM = s.match(/\b(19\d{2}|20\d{2})\b/);
+  const year = yearM ? Number(yearM[0]) : null;
+  if (yearM) s = s.replace(yearM[0], " ");
+  let quality: string | null = null;
+  for (const q of QUALITY_TOKENS) {
+    const re = new RegExp(`\\b${q}\\b`, "i");
+    if (re.test(s)) {
+      const low = q.toLowerCase();
+      quality = low === "4k" || low === "uhd" ? "4K" : low === "hdr" ? "HDR" : q.toLowerCase();
+      s = s.replace(re, " ");
+      break;
+    }
+  }
+  let language: string | null = null;
+  const sortedLangs = [...KNOWN_LANGUAGES].sort((a, b) => b.length - a.length);
+  for (const lang of sortedLangs) {
+    const re = new RegExp(`\\b${lang}\\b`, "i");
+    if (re.test(s)) {
+      language = lang.charAt(0).toUpperCase() + lang.slice(1);
+      s = s.replace(re, " ");
+      break;
+    }
+  }
+  const name = s.replace(/[._\-\[\]\(\)]+/g, " ").replace(/\s+/g, " ").trim();
+  return { name, year, language, quality };
 }
 function movieBtnLabel(m: MovieRow): string {
   const parts: (string | number)[] = [m.title];

@@ -264,14 +264,18 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   // Safely parse year
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
 
+  // Auto-detect quality from size if missing
+  const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
+
   const { movie: inserted, error: insErr } = await insertMovie({
     title: pend.name.trim(),
     file_id: pend.file_id,
     year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
     language: pend.language ?? null,
-    quality: pend.quality ?? null,
+    quality: finalQuality,
     type: null,
     added_by: adminId,
+    file_size: pend.file_size ?? null,
   });
   await clearPendingUpload(adminId);
 
@@ -282,15 +286,60 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     );
   }
 
+  const sizeLabel = fmtSize(pend.file_size);
   const caption =
     `✅ *Movie Saved!*\n\n` +
     `🎬 ${escapeMarkdown(pend.name)} (${yearNum || "?"})\n` +
-    `🌐 ${pend.language || "N/A"} | 📺 ${pend.quality || "N/A"}\n` +
+    `🌐 ${pend.language || "N/A"} | 📺 ${finalQuality || "N/A"}` +
+    (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n` +
     `🆔 ID: \`${inserted.id}\``;
   const kb = new InlineKeyboard()
     .text("📢 Post to Channel", `post_to_channel_${inserted.id}`)
     .text("❌ No", "dismiss_post");
-  return ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
+  const reply = await ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
+
+  // ── Auto-deliver to users with matching pending requests (fuzzy) ──
+  try {
+    const pending = await listPendingRequests();
+    const fuse = new Fuse(pending, {
+      keys: ["title"],
+      threshold: 0.45,
+      ignoreLocation: true,
+      minMatchCharLength: 3,
+    });
+    const matched = fuse.search(inserted.title).map((r) => r.item);
+    let delivered = 0;
+    const seen = new Set<number>();
+    for (const req of matched) {
+      if (seen.has(req.user_id)) continue;
+      seen.add(req.user_id);
+      try {
+        const dmKb = new InlineKeyboard()
+          .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
+          .url("📷 Instagram (Optional)", INSTAGRAM_URL);
+        await ctx.api.sendVideo(req.user_id, inserted.file_id, {
+          caption:
+            `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
+            `🎬 *${escapeMarkdown(inserted.title)}* (${inserted.year || "?"})\n` +
+            `🌐 ${inserted.language || "N/A"} | 📺 ${inserted.quality || "N/A"}` +
+            (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
+            `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
+          parse_mode: "Markdown",
+          reply_markup: dmKb,
+        });
+        await fulfillRequest(req.id);
+        delivered++;
+      } catch (e) {
+        console.error("[auto-deliver]", req.user_id, (e as Error).message);
+      }
+    }
+    if (delivered > 0) {
+      await ctx.reply(`📨 Auto-delivered to ${delivered} requesting user(s).`).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[auto-deliver scan]", (e as Error).message);
+  }
+  return reply;
 }
 
 // ── bot factory ──

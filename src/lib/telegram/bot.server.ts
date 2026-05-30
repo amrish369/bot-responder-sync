@@ -941,7 +941,7 @@ export function createBot(): Bot {
               .text("🎬 Telugu", "ul_lang_Telugu").text("🎬 Tamil", "ul_lang_Tamil").row()
               .text("🎬 Malayalam", "ul_lang_Malayalam").text("🎬 Kannada", "ul_lang_Kannada").row()
               .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
-            return ctx.reply("🌐 *Step 3/4:* Language select karo:", { parse_mode: "Markdown", reply_markup: kb });
+            return ctx.reply("🌐 *Step 3/3:* Language select karo (quality file size se auto-detect ho jayegi):", { parse_mode: "Markdown", reply_markup: kb });
           }
           // FIX 2: If step is "language", remind admin to click button
           if (pend.step === "language") {

@@ -1349,7 +1349,7 @@ export function createBot(): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
         .url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
       try {
-        const sent = await ctx.replyWithVideo(m.file_id, { caption, parse_mode: "Markdown", reply_markup: kb });
+        const sent = await sendMovieFile(ctx.api, chatId ?? uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
         if (!isAdmin(uid) && chatId) scheduleDelete(ctx.api, chatId, sent.message_id);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} download ho rahi hai!` });
       } catch (e) {

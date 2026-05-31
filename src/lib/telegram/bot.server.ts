@@ -908,6 +908,7 @@ export function createBot(): Bot {
     // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
+      const fileKind = fileKindFromMessage(msg);
       const fileSize = msg.video?.file_size ?? msg.document?.file_size ?? null;
       const caption = (msg.caption ?? "").trim();
       if (!fileId) {
@@ -929,6 +930,7 @@ export function createBot(): Bot {
           const pend = {
             mode: "upload",
             file_id: fileId,
+            file_kind: fileKind,
             file_size: fileSize,
             name: parsed.name,
             year: parsed.year ? String(parsed.year) : null,
@@ -948,7 +950,7 @@ export function createBot(): Bot {
       // Step-by-step (auto-detect quality from size)
       await clearPendingUpload(uid);
       await setPendingUpload(uid, {
-        mode: "upload", step: "name", file_id: fileId, file_size: fileSize,
+        mode: "upload", step: "name", file_id: fileId, file_kind: fileKind, file_size: fileSize,
       });
       return ctx.reply(
         `✅ *File Received!*` +

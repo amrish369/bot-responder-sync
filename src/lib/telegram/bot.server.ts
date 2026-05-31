@@ -1475,7 +1475,7 @@ export function createBot(): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
         .url("📷 Instagram (Optional)", INSTAGRAM_URL);
       try {
-        await ctx.api.sendVideo(req.user_id, m.file_id, {
+        await sendMovieFile(ctx.api, req.user_id, m, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
@@ -1495,7 +1495,7 @@ export function createBot(): Bot {
       const m = await fetchMovieById(id);
       if (!m) return ctx.answerCallbackQuery({ text: "❌ Movie not found" });
       try {
-        await ctx.api.sendVideo(CHANNEL(), m.file_id, {
+        await sendMovieFile(ctx.api, CHANNEL(), m, {
           caption:
             `🎬 *New Movie Added!*\n\n${escapeMarkdown(m.title)} (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n📥 Use the bot to download!\n` +

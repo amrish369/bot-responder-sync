@@ -79,6 +79,17 @@ function qualityFromSize(bytes: number | null | undefined): string | null {
   return "4K";
 }
 
+function fileKindFromMessage(msg: any): "video" | "document" {
+  return msg?.document ? "document" : "video";
+}
+
+async function sendMovieFile(api: any, chatId: number | string, movie: MovieRow, opts: any) {
+  if (movie.file_kind === "document") {
+    return api.sendDocument(chatId, movie.file_id, opts);
+  }
+  return api.sendVideo(chatId, movie.file_id, opts);
+}
+
 const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
 function parseCaption(raw: string): { name: string; year: number | null; language: string | null; quality: string | null } {
   const original = (raw || "").replace(/[\r\n]+/g, " ").trim();

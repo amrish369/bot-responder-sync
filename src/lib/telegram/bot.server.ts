@@ -281,6 +281,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   const { movie: inserted, error: insErr } = await insertMovie({
     title: pend.name.trim(),
     file_id: pend.file_id,
+    file_kind: pend.file_kind === "document" ? "document" : "video",
     year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
     language: pend.language ?? null,
     quality: finalQuality,
@@ -328,7 +329,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
         const dmKb = new InlineKeyboard()
           .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
           .url("📷 Instagram (Optional)", INSTAGRAM_URL);
-        await ctx.api.sendVideo(req.user_id, inserted.file_id, {
+        await sendMovieFile(ctx.api, req.user_id, inserted, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
             `🎬 *${escapeMarkdown(inserted.title)}* (${inserted.year || "?"})\n` +

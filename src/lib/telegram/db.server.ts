@@ -4,7 +4,7 @@ export interface MovieRow {
   id: number;
   title: string;
   file_id: string;
-  file_kind: "video" | "document" | null;
+  file_kind: "video" | "document";
   language: string | null;
   quality: string | null;
   year: number | null;

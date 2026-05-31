@@ -79,6 +79,17 @@ function qualityFromSize(bytes: number | null | undefined): string | null {
   return "4K";
 }
 
+function fileKindFromMessage(msg: any): "video" | "document" {
+  return msg?.document ? "document" : "video";
+}
+
+async function sendMovieFile(api: any, chatId: number | string, movie: MovieRow, opts: any) {
+  if (movie.file_kind === "document") {
+    return api.sendDocument(chatId, movie.file_id, opts);
+  }
+  return api.sendVideo(chatId, movie.file_id, opts);
+}
+
 const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
 function parseCaption(raw: string): { name: string; year: number | null; language: string | null; quality: string | null } {
   const original = (raw || "").replace(/[\r\n]+/g, " ").trim();
@@ -131,7 +142,7 @@ function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.reply(text, opts).catch(() => null);
-  if (!isA && msg && ctx.chat?.id && ctx.chat?.type === "private") {
+  if (!isA && msg && ctx.chat?.id) {
     scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
@@ -139,7 +150,7 @@ async function tempReply(ctx: Context, text: string, opts: any = {}) {
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.replyWithPhoto(photo, opts).catch(() => null);
-  if (!isA && msg && ctx.chat?.id && ctx.chat?.type === "private") {
+  if (!isA && msg && ctx.chat?.id) {
     scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
@@ -270,6 +281,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   const { movie: inserted, error: insErr } = await insertMovie({
     title: pend.name.trim(),
     file_id: pend.file_id,
+    file_kind: pend.file_kind === "document" ? "document" : "video",
     year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
     language: pend.language ?? null,
     quality: finalQuality,
@@ -317,7 +329,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
         const dmKb = new InlineKeyboard()
           .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
           .url("📷 Instagram (Optional)", INSTAGRAM_URL);
-        await ctx.api.sendVideo(req.user_id, inserted.file_id, {
+        await sendMovieFile(ctx.api, req.user_id, inserted, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
             `🎬 *${escapeMarkdown(inserted.title)}* (${inserted.year || "?"})\n` +
@@ -345,6 +357,10 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
 // ── bot factory ──
 export function createBot(): Bot {
   const bot = new Bot(BOT_TOKEN());
+
+  bot.catch((err) => {
+    console.error("[telegram bot]", err.error instanceof Error ? err.error.message : String(err.error));
+  });
 
   // chat_join_request: auto-approve
   bot.on("chat_join_request", async (ctx) => {
@@ -410,6 +426,19 @@ export function createBot(): Bot {
 
   // ─── COMMANDS ───
 
+  bot.command("upload", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    await clearPendingUpload(ctx.from!.id);
+    return ctx.reply(
+      `📤 *Upload Ready*\n\n` +
+      `Video/document bhejo, phir bot step-by-step title/year/language lega.\n\n` +
+      `⚡ Fast save ke liye caption ke saath bhejo:\n` +
+      `\`War 2019 720p Hindi\`\n\n` +
+      `Quality aur file size auto-detect hoga.`,
+      { parse_mode: "Markdown" },
+    );
+  });
+
   bot.command("start", async (ctx) => {
     const uid = ctx.from!.id;
     const chatType = ctx.chat?.type;
@@ -474,7 +503,7 @@ export function createBot(): Bot {
       `🔮 /upcoming — Upcoming Indian movies\n` +
       `📋 /myrequests — Track your requests\n\n` +
       `⚡ *3x Fast Download:* Website par ek baar visit karein\n\n` +
-      `👑 *Admin only:* /edit, /stats, /broadcast, /promote, /delete, /ban, /unban\n` +
+      `👑 *Admin only:* /upload, /edit, /stats, /broadcast, /promote, /delete, /ban, /unban\n` +
       `               /pending, /search, /dm, /reply <reqId> <msg>\n` +
       `               /convo, /endconvo, /fastupload`;
     await tempReply(ctx, helpText, { parse_mode: "Markdown" });
@@ -896,6 +925,7 @@ export function createBot(): Bot {
     // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
+      const fileKind = fileKindFromMessage(msg);
       const fileSize = msg.video?.file_size ?? msg.document?.file_size ?? null;
       const caption = (msg.caption ?? "").trim();
       if (!fileId) {
@@ -917,6 +947,7 @@ export function createBot(): Bot {
           const pend = {
             mode: "upload",
             file_id: fileId,
+            file_kind: fileKind,
             file_size: fileSize,
             name: parsed.name,
             year: parsed.year ? String(parsed.year) : null,
@@ -936,7 +967,7 @@ export function createBot(): Bot {
       // Step-by-step (auto-detect quality from size)
       await clearPendingUpload(uid);
       await setPendingUpload(uid, {
-        mode: "upload", step: "name", file_id: fileId, file_size: fileSize,
+        mode: "upload", step: "name", file_id: fileId, file_kind: fileKind, file_size: fileSize,
       });
       return ctx.reply(
         `✅ *File Received!*` +
@@ -1322,7 +1353,7 @@ export function createBot(): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
         .url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
       try {
-        const sent = await ctx.replyWithVideo(m.file_id, { caption, parse_mode: "Markdown", reply_markup: kb });
+        const sent = await sendMovieFile(ctx.api, chatId ?? uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
         if (!isAdmin(uid) && chatId) scheduleDelete(ctx.api, chatId, sent.message_id);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} download ho rahi hai!` });
       } catch (e) {
@@ -1448,7 +1479,7 @@ export function createBot(): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
         .url("📷 Instagram (Optional)", INSTAGRAM_URL);
       try {
-        await ctx.api.sendVideo(req.user_id, m.file_id, {
+        await sendMovieFile(ctx.api, req.user_id, m, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
@@ -1468,7 +1499,7 @@ export function createBot(): Bot {
       const m = await fetchMovieById(id);
       if (!m) return ctx.answerCallbackQuery({ text: "❌ Movie not found" });
       try {
-        await ctx.api.sendVideo(CHANNEL(), m.file_id, {
+        await sendMovieFile(ctx.api, CHANNEL(), m, {
           caption:
             `🎬 *New Movie Added!*\n\n${escapeMarkdown(m.title)} (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n📥 Use the bot to download!\n` +

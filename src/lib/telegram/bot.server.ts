@@ -358,6 +358,10 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
 export function createBot(): Bot {
   const bot = new Bot(BOT_TOKEN());
 
+  bot.catch((err) => {
+    console.error("[telegram bot]", err.error instanceof Error ? err.error.message : String(err.error));
+  });
+
   // chat_join_request: auto-approve
   bot.on("chat_join_request", async (ctx) => {
     try {

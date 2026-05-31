@@ -422,6 +422,19 @@ export function createBot(): Bot {
 
   // ─── COMMANDS ───
 
+  bot.command("upload", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    await clearPendingUpload(ctx.from!.id);
+    return ctx.reply(
+      `📤 *Upload Ready*\n\n` +
+      `Video/document bhejo, phir bot step-by-step title/year/language lega.\n\n` +
+      `⚡ Fast save ke liye caption ke saath bhejo:\n` +
+      `\`War 2019 720p Hindi\`\n\n` +
+      `Quality aur file size auto-detect hoga.`,
+      { parse_mode: "Markdown" },
+    );
+  });
+
   bot.command("start", async (ctx) => {
     const uid = ctx.from!.id;
     const chatType = ctx.chat?.type;

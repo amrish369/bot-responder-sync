@@ -79,6 +79,7 @@ export type Database = {
           added_by: number | null
           created_at: string
           file_id: string
+          file_kind: string
           file_size: number | null
           id: number
           language: string | null
@@ -91,6 +92,7 @@ export type Database = {
           added_by?: number | null
           created_at?: string
           file_id: string
+          file_kind?: string
           file_size?: number | null
           id?: number
           language?: string | null
@@ -103,6 +105,7 @@ export type Database = {
           added_by?: number | null
           created_at?: string
           file_id?: string
+          file_kind?: string
           file_size?: number | null
           id?: number
           language?: string | null

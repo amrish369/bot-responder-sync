@@ -844,25 +844,122 @@ export function createBot(): Bot {
     await ctx.reply(`🛑 Conversation ended.`);
   });
 
-  // ── /fastupload — toggle one-shot caption-parsed upload mode ──
+  // ── /fastupload on|off — persistent upload mode (DB-backed) ──
   bot.command("fastupload", async (ctx) => {
-    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
-    const uid = ctx.from!.id;
-    const existing = await getPendingUpload(uid);
-    if (existing?.mode === "fastupload") {
-      await clearPendingUpload(uid);
-      return ctx.reply("🛑 *Fast Upload mode OFF.*", { parse_mode: "Markdown" });
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const arg = (ctx.message?.text ?? "").replace("/fastupload", "").trim().toLowerCase();
+    if (arg !== "on" && arg !== "off") {
+      const s = await getSettings(true);
+      return ctx.reply(
+        `Usage: \`/fastupload on\` or \`/fastupload off\`\n\nCurrent: *${s.upload_mode === "fast" ? "FAST" : "NORMAL"}*`,
+        { parse_mode: "Markdown" }
+      );
     }
-    await clearPendingUpload(uid);
-    await setPendingUpload(uid, { mode: "fastupload" });
+    try {
+      if (arg === "on") {
+        await setSetting("upload_mode", "fast");
+        return ctx.reply("✅ Fast Upload Enabled");
+      }
+      await setSetting("upload_mode", "normal");
+      return ctx.reply("✅ Fast Upload Disabled\n\n📋 Normal Upload Mode Enabled");
+    } catch (e) {
+      console.error("[/fastupload]", (e as Error).message);
+      return ctx.reply("❌ Operation Failed");
+    }
+  });
+
+  // ── /autodelete on|off ──
+  bot.command("autodelete", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const arg = (parts[1] || "").toLowerCase();
+    if (arg !== "on" && arg !== "off") {
+      const s = await getSettings(true);
+      return ctx.reply(
+        `Usage: \`/autodelete on\` or \`/autodelete off [seconds]\`\n\n` +
+        `Current: *${s.autodelete_status ? "ON" : "OFF"}* · Timer: *${s.autodelete_timer}s*`,
+        { parse_mode: "Markdown" }
+      );
+    }
+    try {
+      if (arg === "on") {
+        await setSetting("autodelete_status", true);
+        if (parts[2]) {
+          const t = Number(parts[2]);
+          if (Number.isFinite(t) && t >= 2 && t <= 600) await setSetting("autodelete_timer", t);
+        }
+        return ctx.reply("✅ Auto Delete Enabled");
+      }
+      await setSetting("autodelete_status", false);
+      return ctx.reply("✅ Auto Delete Disabled");
+    } catch (e) {
+      console.error("[/autodelete]", (e as Error).message);
+      return ctx.reply("❌ Operation Failed");
+    }
+  });
+
+  // ── /setforcejoin <@chan or url> ──
+  bot.command("setforcejoin", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setforcejoin", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setforcejoin @channelname` or `/setforcejoin https://t.me/channelname`", { parse_mode: "Markdown" });
+    const ref = normaliseChatRef(raw);
+    if (!ref) return ctx.reply("❌ Invalid channel/group");
+    try {
+      await setSetting("force_join_link", ref);
+      return ctx.reply(`✅ Force Join Set: *${ref}*`, { parse_mode: "Markdown" });
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("removeforcejoin", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    try {
+      await setSetting("force_join_link", null);
+      return ctx.reply("✅ Force Join Disabled");
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("setmaingroup", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setmaingroup", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setmaingroup https://t.me/main_group`", { parse_mode: "Markdown" });
+    try {
+      await setSetting("main_group_link", raw);
+      return ctx.reply(`✅ Main Group Set: ${raw}`);
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("setbackupgroup", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setbackupgroup", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setbackupgroup https://t.me/backup_group`", { parse_mode: "Markdown" });
+    try {
+      await setSetting("backup_group_link", raw);
+      return ctx.reply(`✅ Backup Group Set: ${raw}`);
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("settings", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const s = await getSettings(true);
     return ctx.reply(
-      `⚡ *Fast Upload mode ON.*\n\n` +
-      `Ab koi bhi video/document caption ke saath bhejo, e.g.:\n` +
-      `\`War 2019 720p Hindi\`\n\n` +
-      `Title / year / quality / language auto-detect ho jayenge. File size se quality bhi auto-fill hogi.\n\n` +
-      `Off karne ke liye /fastupload dobara bhejein.`,
+      `⚙ *Bot Settings*\n\n` +
+      `📤 Upload Mode: *${s.upload_mode === "fast" ? "FASTUPLOAD" : "NORMAL"}*\n` +
+      `🗑 Auto Delete: *${s.autodelete_status ? "ON" : "OFF"}* (${s.autodelete_timer}s)\n` +
+      `🔒 Force Join: *${s.force_join_link ?? "—"}*\n` +
+      `📢 Main Group: ${s.main_group_link ?? "—"}\n` +
+      `🗂️ Backup Group: ${s.backup_group_link ?? "—"}`,
       { parse_mode: "Markdown" }
     );
+  });
+
+  // ── /promotion — 2-step wizard ──
+  bot.command("promotion", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const uid = ctx.from!.id;
+    await clearPendingUpload(uid);
+    await setPendingUpload(uid, { mode: "promotion", step: "desc" });
+    return ctx.reply("📣 *Step 1 of 2:* Send Promotion Description", { parse_mode: "Markdown" });
   });
 
   // ── /promote — broadcast promotional message to main + backup channel ──

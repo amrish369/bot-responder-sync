@@ -716,15 +716,34 @@ export function createBot(): Bot {
     if (!text) return ctx.reply("Usage: /broadcast <message>");
     const users = await listAllUsers();
     await ctx.reply(`📢 Sending to ${users.length} users...`);
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, blocked = 0, deleted = 0;
+    const start = Date.now();
     for (const u of users) {
       try {
         await ctx.api.sendMessage(u.telegram_id, `📢 *Announcement*\n\n${escapeMarkdown(text)}`, { parse_mode: "Markdown" });
         ok++;
-      } catch { fail++; }
+      } catch (e) {
+        const msg = (e as Error).message || "";
+        if (/blocked/i.test(msg)) blocked++;
+        else if (/deactivated|user is deactivated|chat not found/i.test(msg)) deleted++;
+        else fail++;
+      }
       await new Promise((r) => setTimeout(r, 50));
     }
-    await ctx.reply(`✅ Done — Success: ${ok} | Failed: ${fail}`);
+    const timeMs = Date.now() - start;
+    await insertBroadcastLog({
+      total: users.length, success: ok, failed: fail, blocked, deleted,
+      time_ms: timeMs, admin_id: ctx.from!.id, message: text.slice(0, 1000),
+    });
+    await ctx.reply(
+      `📢 *Broadcast Completed*\n\n` +
+      `✅ Success: *${ok}*\n` +
+      `❌ Failed: *${fail}*\n` +
+      `🚫 Blocked Bot: *${blocked}*\n` +
+      `🗑 Deleted Accounts: *${deleted}*\n` +
+      `⏱ Time Taken: *${(timeMs / 1000).toFixed(1)}s*`,
+      { parse_mode: "Markdown" }
+    );
   });
 
   bot.command("delete", async (ctx) => {

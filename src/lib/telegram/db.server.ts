@@ -228,3 +228,25 @@ export async function setConvo(adminId: number, targetUserId: number): Promise<v
 export async function endConvo(): Promise<void> {
   await supabaseAdmin.from("convos").delete().neq("admin_id", -1);
 }
+
+// ── broadcast logs ──
+export async function insertBroadcastLog(row: {
+  total: number; success: number; failed: number; blocked: number;
+  deleted: number; time_ms: number; admin_id: number | null; message: string;
+}): Promise<number | null> {
+  const { data, error } = await supabaseAdmin
+    .from("broadcast_logs").insert(row).select("id").single();
+  if (error) { console.error("[DB] broadcast_log", error.message); return null; }
+  return (data as any)?.id ?? null;
+}
+
+// ── daily TMDB poster dedupe ──
+export async function getSentTmdbIds(): Promise<Set<number>> {
+  const { data } = await supabaseAdmin.from("daily_sent_movies").select("tmdb_id");
+  return new Set((data ?? []).map((r: any) => Number(r.tmdb_id)));
+}
+
+export async function markTmdbSent(ids: { tmdb_id: number; kind: string }[]): Promise<void> {
+  if (!ids.length) return;
+  await supabaseAdmin.from("daily_sent_movies").upsert(ids, { onConflict: "tmdb_id" });
+}

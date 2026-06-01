@@ -32,6 +32,63 @@ export type Database = {
         }
         Relationships: []
       }
+      bot_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
+      broadcast_logs: {
+        Row: {
+          admin_id: number | null
+          blocked: number
+          created_at: string
+          deleted: number
+          failed: number
+          id: number
+          message: string | null
+          success: number
+          time_ms: number
+          total: number
+        }
+        Insert: {
+          admin_id?: number | null
+          blocked?: number
+          created_at?: string
+          deleted?: number
+          failed?: number
+          id?: number
+          message?: string | null
+          success?: number
+          time_ms?: number
+          total?: number
+        }
+        Update: {
+          admin_id?: number | null
+          blocked?: number
+          created_at?: string
+          deleted?: number
+          failed?: number
+          id?: number
+          message?: string | null
+          success?: number
+          time_ms?: number
+          total?: number
+        }
+        Relationships: []
+      }
       chat_logs: {
         Row: {
           created_at: string
@@ -71,6 +128,24 @@ export type Database = {
           admin_id?: number
           started_at?: string
           target_user_id?: number
+        }
+        Relationships: []
+      }
+      daily_sent_movies: {
+        Row: {
+          kind: string
+          sent_on: string
+          tmdb_id: number
+        }
+        Insert: {
+          kind: string
+          sent_on?: string
+          tmdb_id: number
+        }
+        Update: {
+          kind?: string
+          sent_on?: string
+          tmdb_id?: number
         }
         Relationships: []
       }

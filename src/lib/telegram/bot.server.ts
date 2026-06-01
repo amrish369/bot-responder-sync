@@ -1188,6 +1188,39 @@ export function createBot(): Bot {
       if (pend) {
         const text = sanitize(msg.text);
 
+        // ── /promotion 2-step wizard ──
+        if (pend.mode === "promotion") {
+          if (pend.step === "desc") {
+            pend.desc = msg.text.trim();
+            pend.step = "url";
+            await setPendingUpload(uid, pend);
+            return ctx.reply("🔗 *Step 2 of 2:* Send URL", { parse_mode: "Markdown" });
+          }
+          if (pend.step === "url") {
+            const url = msg.text.trim();
+            if (!/^https?:\/\//i.test(url)) {
+              return ctx.reply("❌ Invalid URL. Must start with http(s)://");
+            }
+            await clearPendingUpload(uid);
+            const s = await getSettings(true);
+            const targets = [s.main_group_link, s.backup_group_link]
+              .map((x) => normaliseChatRef(x || ""))
+              .filter((x): x is string => !!x);
+            const kb = new InlineKeyboard().url("🔗 Join Now", url);
+            let ok = 0; const fail: string[] = [];
+            for (const t of targets) {
+              try {
+                await ctx.api.sendMessage(t, `📢 ${pend.desc}`, { reply_markup: kb });
+                ok++;
+              } catch (e) { fail.push(`${t}: ${(e as Error).message}`); }
+            }
+            return ctx.reply(
+              `✅ Promotion posted to ${ok}/${targets.length}` +
+              (fail.length ? `\n\n❌ ${fail.join("\n")}` : "")
+            );
+          }
+        }
+
         // ── FIX 3: Edit mode — value capture ──
         if (pend.mode === "edit" && pend.step === "value" && pend.field) {
           const patch: any = {};

@@ -48,9 +48,20 @@ import {
   userDisplayName,
   type MovieRow,
 } from "./db.server";
+import {
+  insertBroadcastLog,
+  getSentTmdbIds,
+  markTmdbSent,
+} from "./db.server";
+import {
+  getSettings,
+  setSetting,
+  normaliseChatRef,
+  asHttpsLink,
+} from "./settings.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-// ─── FIX 1: 5-minute auto-delete (defined locally, not imported) ─────────────
-const AUTO_DELETE_MS = 5 * 60 * 1000; // 5 minutes
+// Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
 
 // ─── helpers ────────────────────────────────────────────────
 function sanitize(s: string | undefined): string {

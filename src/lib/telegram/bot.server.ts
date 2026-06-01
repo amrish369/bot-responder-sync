@@ -48,9 +48,20 @@ import {
   userDisplayName,
   type MovieRow,
 } from "./db.server";
+import {
+  insertBroadcastLog,
+  getSentTmdbIds,
+  markTmdbSent,
+} from "./db.server";
+import {
+  getSettings,
+  setSetting,
+  normaliseChatRef,
+  asHttpsLink,
+} from "./settings.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-// ─── FIX 1: 5-minute auto-delete (defined locally, not imported) ─────────────
-const AUTO_DELETE_MS = 5 * 60 * 1000; // 5 minutes
+// Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
 
 // ─── helpers ────────────────────────────────────────────────
 function sanitize(s: string | undefined): string {
@@ -131,27 +142,36 @@ function movieBtnLabel(m: MovieRow): string {
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
 }
 
-function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
+async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
+  const s = await getSettings();
+  if (!s.autodelete_status) return;
+  const ms = Math.max(2, s.autodelete_timer) * 1000;
   setTimeout(() => {
     msgIds.forEach((id) => {
       if (id) api.deleteMessage(chatId, id).catch(() => {});
     });
-  }, AUTO_DELETE_MS);
+  }, ms);
 }
 
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
-  const msg = await ctx.reply(text, opts).catch(() => null);
+  const msg = await ctx.reply(text, opts).catch((e) => {
+    console.error("[tempReply]", (e as Error).message);
+    return null;
+  });
   if (!isA && msg && ctx.chat?.id) {
-    scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
+    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
 }
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
-  const msg = await ctx.replyWithPhoto(photo, opts).catch(() => null);
+  const msg = await ctx.replyWithPhoto(photo, opts).catch((e) => {
+    console.error("[tempPhoto]", (e as Error).message);
+    return null;
+  });
   if (!isA && msg && ctx.chat?.id) {
-    scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
+    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
 }
@@ -229,33 +249,97 @@ function mergeKeyboards(kb1: InlineKeyboard, kb2: InlineKeyboard): InlineKeyboar
   return merged;
 }
 
-// ── force join ──
+// ── force join (DB-backed) ──
 async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  const checks = [CHANNEL(), BACKUP_CHANNEL()];
+  const s = await getSettings();
+  if (!s.force_join_link) return true; // force-join disabled
+  const refs = [s.force_join_link, s.main_group_link, s.backup_group_link]
+    .map((x) => normaliseChatRef(x || ""))
+    .filter((x): x is string => !!x && x.startsWith("@"));
+  if (!refs.length) return true;
   let errors = 0;
-  for (const ch of checks) {
+  for (const ch of refs) {
     try {
       const m = await bot.api.getChatMember(ch, userId);
       if (["member", "administrator", "creator"].includes(m.status)) return true;
-    } catch { errors++; }
+    } catch (e) {
+      errors++;
+      console.error("[force-join check]", ch, (e as Error).message);
+    }
   }
-  if (errors === checks.length) return true;
-  return false;
+  // If every check errored (private channels, bot not admin), don't block.
+  return errors === refs.length;
 }
 async function sendForceJoinMsg(ctx: Context) {
-  const kb = new InlineKeyboard()
-    .url("📢 Main Group Join Karein", `https://t.me/${CHANNEL_USERNAME()}`)
-    .row()
-    .url("🗂️ Backup Group Join Karein", `https://t.me/${BACKUP_CHANNEL_USERNAME()}`)
-    .row()
-    .text("✅ Join Kar Li — Verify", "verify_join");
+  const s = await getSettings();
+  const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
+  const backupLink = asHttpsLink(s.backup_group_link);
+  const kb = new InlineKeyboard();
+  if (mainLink) kb.url("📢 Main Group Join Karein", mainLink).row();
+  if (backupLink) kb.url("🗂️ Backup Group Join Karein", backupLink).row();
+  kb.text("✅ Join Kar Li — Verify", "verify_join");
   await ctx.reply(
     `🔒 *Bot Use Karne Ke Liye Pehle Group Join Karein!*\n\n` +
-    `📢 Main Group: @${CHANNEL_USERNAME()}\n` +
-    `🗂️ Backup Group: @${BACKUP_CHANNEL_USERNAME()}\n\n` +
-    `Koi ek group join karke *"✅ Join Kar Li — Verify"* button dabaao.`,
+    (mainLink ? `📢 Main Group: ${mainLink}\n` : "") +
+    (backupLink ? `🗂️ Backup Group: ${backupLink}\n\n` : "\n") +
+    `Join karke *"✅ Join Kar Li — Verify"* button dabaao.`,
     { parse_mode: "Markdown", reply_markup: kb }
-  ).catch(() => {});
+  ).catch((e) => console.error("[sendForceJoinMsg]", (e as Error).message));
+}
+
+// ── Daily TMDB digest: 1 upcoming + 2 released, never-repeat, never auto-delete ──
+async function maybeSendDailyDigest(bot: Bot, userId: number) {
+  try {
+    const key = `daily_sent_user_${userId}`;
+    const { data: row } = await supabaseAdmin
+      .from("bot_settings").select("value").eq("key", key).maybeSingle();
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    if (row && (row as any).value === todayUTC) return;
+
+    const sent = await getSentTmdbIds();
+    const released = await getIndianMoviesByType("new", 12);
+    const upcoming = await getIndianMoviesByType("upcoming", 12);
+    const freshReleased = released.filter((m) => !sent.has(m._tmdbId)).slice(0, 2);
+    const freshUpcoming = upcoming.filter((m) => !sent.has(m._tmdbId)).slice(0, 1);
+    if (!freshReleased.length && !freshUpcoming.length) {
+      // Nothing new — still mark sent to avoid hammering TMDB on every msg
+      await supabaseAdmin.from("bot_settings").upsert({
+        key, value: todayUTC as any, updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+      return;
+    }
+
+    const intro =
+      `🎬 *Daily Movie Update — ${todayUTC}*\n\n` +
+      `🆕 ${freshReleased.length} recently released  •  🔮 ${freshUpcoming.length} upcoming`;
+    await bot.api.sendMessage(userId, intro, { parse_mode: "Markdown" }).catch(() => {});
+
+    const send = async (m: any, label: string) => {
+      const cap =
+        `${label} *${escapeMarkdown(m.Title)}* (${m.Year})\n` +
+        (m._releaseDate ? `📅 ${escapeMarkdown(m._releaseDate)}\n` : "") +
+        (m._language && m._language !== "N/A" ? `🌐 ${escapeMarkdown(m._language)}\n` : "") +
+        (m.imdbRating !== "N/A" ? `⭐ TMDB: ${m.imdbRating}/10\n` : "") +
+        (m.Plot !== "N/A" ? `\n📖 ${escapeMarkdown(String(m.Plot).slice(0, 220))}` : "");
+      try {
+        await bot.api.sendPhoto(userId, m.Poster, { caption: cap, parse_mode: "Markdown" });
+      } catch (e) {
+        console.error("[daily digest send]", userId, (e as Error).message);
+      }
+    };
+    for (const m of freshReleased) await send(m, "🆕");
+    for (const m of freshUpcoming) await send(m, "🔮");
+
+    await markTmdbSent([
+      ...freshReleased.map((m) => ({ tmdb_id: m._tmdbId, kind: "released" })),
+      ...freshUpcoming.map((m) => ({ tmdb_id: m._tmdbId, kind: "upcoming" })),
+    ]);
+    await supabaseAdmin.from("bot_settings").upsert({
+      key, value: todayUTC as any, updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+  } catch (e) {
+    console.error("[daily digest]", (e as Error).message);
+  }
 }
 
 // ─── FIX 2: finishUpload — extracted and hardened ────────────────────────────
@@ -390,6 +474,11 @@ export function createBot(): Bot {
       return;
     }
     if (isAdmin(uid)) return next();
+    // Daily TMDB digest (private chat only, non-blocking)
+    if (ctx.chat?.type === "private") {
+      maybeSendDailyDigest(bot, uid).catch((e) =>
+        console.error("[daily digest hook]", (e as Error).message));
+    }
 
     if (ctx.callbackQuery?.data === "verify_join") {
       const joined = await isChannelMember(bot, uid);
@@ -632,15 +721,34 @@ export function createBot(): Bot {
     if (!text) return ctx.reply("Usage: /broadcast <message>");
     const users = await listAllUsers();
     await ctx.reply(`📢 Sending to ${users.length} users...`);
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, blocked = 0, deleted = 0;
+    const start = Date.now();
     for (const u of users) {
       try {
         await ctx.api.sendMessage(u.telegram_id, `📢 *Announcement*\n\n${escapeMarkdown(text)}`, { parse_mode: "Markdown" });
         ok++;
-      } catch { fail++; }
+      } catch (e) {
+        const msg = (e as Error).message || "";
+        if (/blocked/i.test(msg)) blocked++;
+        else if (/deactivated|user is deactivated|chat not found/i.test(msg)) deleted++;
+        else fail++;
+      }
       await new Promise((r) => setTimeout(r, 50));
     }
-    await ctx.reply(`✅ Done — Success: ${ok} | Failed: ${fail}`);
+    const timeMs = Date.now() - start;
+    await insertBroadcastLog({
+      total: users.length, success: ok, failed: fail, blocked, deleted,
+      time_ms: timeMs, admin_id: ctx.from!.id, message: text.slice(0, 1000),
+    });
+    await ctx.reply(
+      `📢 *Broadcast Completed*\n\n` +
+      `✅ Success: *${ok}*\n` +
+      `❌ Failed: *${fail}*\n` +
+      `🚫 Blocked Bot: *${blocked}*\n` +
+      `🗑 Deleted Accounts: *${deleted}*\n` +
+      `⏱ Time Taken: *${(timeMs / 1000).toFixed(1)}s*`,
+      { parse_mode: "Markdown" }
+    );
   });
 
   bot.command("delete", async (ctx) => {
@@ -741,25 +849,122 @@ export function createBot(): Bot {
     await ctx.reply(`🛑 Conversation ended.`);
   });
 
-  // ── /fastupload — toggle one-shot caption-parsed upload mode ──
+  // ── /fastupload on|off — persistent upload mode (DB-backed) ──
   bot.command("fastupload", async (ctx) => {
-    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
-    const uid = ctx.from!.id;
-    const existing = await getPendingUpload(uid);
-    if (existing?.mode === "fastupload") {
-      await clearPendingUpload(uid);
-      return ctx.reply("🛑 *Fast Upload mode OFF.*", { parse_mode: "Markdown" });
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const arg = (ctx.message?.text ?? "").replace("/fastupload", "").trim().toLowerCase();
+    if (arg !== "on" && arg !== "off") {
+      const s = await getSettings(true);
+      return ctx.reply(
+        `Usage: \`/fastupload on\` or \`/fastupload off\`\n\nCurrent: *${s.upload_mode === "fast" ? "FAST" : "NORMAL"}*`,
+        { parse_mode: "Markdown" }
+      );
     }
-    await clearPendingUpload(uid);
-    await setPendingUpload(uid, { mode: "fastupload" });
+    try {
+      if (arg === "on") {
+        await setSetting("upload_mode", "fast");
+        return ctx.reply("✅ Fast Upload Enabled");
+      }
+      await setSetting("upload_mode", "normal");
+      return ctx.reply("✅ Fast Upload Disabled\n\n📋 Normal Upload Mode Enabled");
+    } catch (e) {
+      console.error("[/fastupload]", (e as Error).message);
+      return ctx.reply("❌ Operation Failed");
+    }
+  });
+
+  // ── /autodelete on|off ──
+  bot.command("autodelete", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
+    const arg = (parts[1] || "").toLowerCase();
+    if (arg !== "on" && arg !== "off") {
+      const s = await getSettings(true);
+      return ctx.reply(
+        `Usage: \`/autodelete on\` or \`/autodelete off [seconds]\`\n\n` +
+        `Current: *${s.autodelete_status ? "ON" : "OFF"}* · Timer: *${s.autodelete_timer}s*`,
+        { parse_mode: "Markdown" }
+      );
+    }
+    try {
+      if (arg === "on") {
+        await setSetting("autodelete_status", true);
+        if (parts[2]) {
+          const t = Number(parts[2]);
+          if (Number.isFinite(t) && t >= 2 && t <= 600) await setSetting("autodelete_timer", t);
+        }
+        return ctx.reply("✅ Auto Delete Enabled");
+      }
+      await setSetting("autodelete_status", false);
+      return ctx.reply("✅ Auto Delete Disabled");
+    } catch (e) {
+      console.error("[/autodelete]", (e as Error).message);
+      return ctx.reply("❌ Operation Failed");
+    }
+  });
+
+  // ── /setforcejoin <@chan or url> ──
+  bot.command("setforcejoin", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setforcejoin", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setforcejoin @channelname` or `/setforcejoin https://t.me/channelname`", { parse_mode: "Markdown" });
+    const ref = normaliseChatRef(raw);
+    if (!ref) return ctx.reply("❌ Invalid channel/group");
+    try {
+      await setSetting("force_join_link", ref);
+      return ctx.reply(`✅ Force Join Set: *${ref}*`, { parse_mode: "Markdown" });
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("removeforcejoin", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    try {
+      await setSetting("force_join_link", null);
+      return ctx.reply("✅ Force Join Disabled");
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("setmaingroup", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setmaingroup", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setmaingroup https://t.me/main_group`", { parse_mode: "Markdown" });
+    try {
+      await setSetting("main_group_link", raw);
+      return ctx.reply(`✅ Main Group Set: ${raw}`);
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("setbackupgroup", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setbackupgroup", "").trim();
+    if (!raw) return ctx.reply("Usage: `/setbackupgroup https://t.me/backup_group`", { parse_mode: "Markdown" });
+    try {
+      await setSetting("backup_group_link", raw);
+      return ctx.reply(`✅ Backup Group Set: ${raw}`);
+    } catch { return ctx.reply("❌ Operation Failed"); }
+  });
+
+  bot.command("settings", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const s = await getSettings(true);
     return ctx.reply(
-      `⚡ *Fast Upload mode ON.*\n\n` +
-      `Ab koi bhi video/document caption ke saath bhejo, e.g.:\n` +
-      `\`War 2019 720p Hindi\`\n\n` +
-      `Title / year / quality / language auto-detect ho jayenge. File size se quality bhi auto-fill hogi.\n\n` +
-      `Off karne ke liye /fastupload dobara bhejein.`,
+      `⚙ *Bot Settings*\n\n` +
+      `📤 Upload Mode: *${s.upload_mode === "fast" ? "FASTUPLOAD" : "NORMAL"}*\n` +
+      `🗑 Auto Delete: *${s.autodelete_status ? "ON" : "OFF"}* (${s.autodelete_timer}s)\n` +
+      `🔒 Force Join: *${s.force_join_link ?? "—"}*\n` +
+      `📢 Main Group: ${s.main_group_link ?? "—"}\n` +
+      `🗂️ Backup Group: ${s.backup_group_link ?? "—"}`,
       { parse_mode: "Markdown" }
     );
+  });
+
+  // ── /promotion — 2-step wizard ──
+  bot.command("promotion", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const uid = ctx.from!.id;
+    await clearPendingUpload(uid);
+    await setPendingUpload(uid, { mode: "promotion", step: "desc" });
+    return ctx.reply("📣 *Step 1 of 2:* Send Promotion Description", { parse_mode: "Markdown" });
   });
 
   // ── /promote — broadcast promotional message to main + backup channel ──
@@ -935,47 +1140,44 @@ export function createBot(): Bot {
       const sizeLabel = fmtSize(fileSize);
       const autoQual = qualityFromSize(fileSize);
 
-      // Check if admin previously entered /fastupload mode
-      const existing = await getPendingUpload(uid);
-      const fastMode = existing?.mode === "fastupload";
+      // STRICT mode-controller: read persistent upload_mode from settings
+      const s = await getSettings(true);
+      const fastMode = s.upload_mode === "fast";
 
-      // FAST UPLOAD: parse caption fully and save in one shot
-      if (fastMode || (caption && /\b(19\d{2}|20\d{2})\b/.test(caption))) {
+      if (fastMode) {
+        // FAST: parse caption fully, save one-shot. Never start wizard.
         const parsed = parseCaption(caption);
-        if (parsed.name) {
-          await clearPendingUpload(uid);
-          const pend = {
-            mode: "upload",
-            file_id: fileId,
-            file_kind: fileKind,
-            file_size: fileSize,
-            name: parsed.name,
-            year: parsed.year ? String(parsed.year) : null,
-            language: parsed.language,
-            quality: parsed.quality || autoQual,
-          };
-          return finishUpload(ctx, pend, uid);
-        }
-        if (fastMode) {
+        if (!parsed.name) {
           return ctx.reply(
-            "⚠️ /fastupload mode ON hai par caption se name parse nahi hua.\nCaption format: `War 2019 720p Hindi`",
+            "⚠️ Fast Upload mode ON hai par caption se name parse nahi hua.\n\nCaption format: `War 2019 720p Hindi`",
             { parse_mode: "Markdown" }
           );
         }
+        await clearPendingUpload(uid);
+        const pend = {
+          mode: "upload",
+          file_id: fileId,
+          file_kind: fileKind,
+          file_size: fileSize,
+          name: parsed.name,
+          year: parsed.year ? String(parsed.year) : null,
+          language: parsed.language,
+          quality: parsed.quality || autoQual,
+        };
+        return finishUpload(ctx, pend, uid);
       }
 
-      // Step-by-step (auto-detect quality from size)
+      // NORMAL: always start step-by-step wizard, never parse caption
       await clearPendingUpload(uid);
       await setPendingUpload(uid, {
         mode: "upload", step: "name", file_id: fileId, file_kind: fileKind, file_size: fileSize,
       });
       return ctx.reply(
-        `✅ *File Received!*` +
+        `✅ *File Received — Normal Upload*` +
         (sizeLabel ? ` (${sizeLabel})` : "") +
         (autoQual ? ` → 📺 Auto-detected: *${autoQual}*` : "") +
         `\n\n📝 *Step 1/3:* Movie ka naam type karein:\n\n` +
-        `_Tip: caption mein \`Name 2019 720p Hindi\` likho to ek-shot save hoga._\n` +
-        `_Ya /fastupload toggle karein._`,
+        `_Tip: \`/fastupload on\` se caption-based one-shot upload enable hota hai._`,
         { parse_mode: "Markdown" }
       );
     }
@@ -985,6 +1187,39 @@ export function createBot(): Bot {
       const pend = await getPendingUpload(uid);
       if (pend) {
         const text = sanitize(msg.text);
+
+        // ── /promotion 2-step wizard ──
+        if (pend.mode === "promotion") {
+          if (pend.step === "desc") {
+            pend.desc = msg.text.trim();
+            pend.step = "url";
+            await setPendingUpload(uid, pend);
+            return ctx.reply("🔗 *Step 2 of 2:* Send URL", { parse_mode: "Markdown" });
+          }
+          if (pend.step === "url") {
+            const url = msg.text.trim();
+            if (!/^https?:\/\//i.test(url)) {
+              return ctx.reply("❌ Invalid URL. Must start with http(s)://");
+            }
+            await clearPendingUpload(uid);
+            const s = await getSettings(true);
+            const targets = [s.main_group_link, s.backup_group_link]
+              .map((x) => normaliseChatRef(x || ""))
+              .filter((x): x is string => !!x);
+            const kb = new InlineKeyboard().url("🔗 Join Now", url);
+            let ok = 0; const fail: string[] = [];
+            for (const t of targets) {
+              try {
+                await ctx.api.sendMessage(t, `📢 ${pend.desc}`, { reply_markup: kb });
+                ok++;
+              } catch (e) { fail.push(`${t}: ${(e as Error).message}`); }
+            }
+            return ctx.reply(
+              `✅ Promotion posted to ${ok}/${targets.length}` +
+              (fail.length ? `\n\n❌ ${fail.join("\n")}` : "")
+            );
+          }
+        }
 
         // ── FIX 3: Edit mode — value capture ──
         if (pend.mode === "edit" && pend.step === "value" && pend.field) {

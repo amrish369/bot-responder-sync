@@ -249,33 +249,97 @@ function mergeKeyboards(kb1: InlineKeyboard, kb2: InlineKeyboard): InlineKeyboar
   return merged;
 }
 
-// ── force join ──
+// ── force join (DB-backed) ──
 async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  const checks = [CHANNEL(), BACKUP_CHANNEL()];
+  const s = await getSettings();
+  if (!s.force_join_link) return true; // force-join disabled
+  const refs = [s.force_join_link, s.main_group_link, s.backup_group_link]
+    .map((x) => normaliseChatRef(x || ""))
+    .filter((x): x is string => !!x && x.startsWith("@"));
+  if (!refs.length) return true;
   let errors = 0;
-  for (const ch of checks) {
+  for (const ch of refs) {
     try {
       const m = await bot.api.getChatMember(ch, userId);
       if (["member", "administrator", "creator"].includes(m.status)) return true;
-    } catch { errors++; }
+    } catch (e) {
+      errors++;
+      console.error("[force-join check]", ch, (e as Error).message);
+    }
   }
-  if (errors === checks.length) return true;
-  return false;
+  // If every check errored (private channels, bot not admin), don't block.
+  return errors === refs.length;
 }
 async function sendForceJoinMsg(ctx: Context) {
-  const kb = new InlineKeyboard()
-    .url("📢 Main Group Join Karein", `https://t.me/${CHANNEL_USERNAME()}`)
-    .row()
-    .url("🗂️ Backup Group Join Karein", `https://t.me/${BACKUP_CHANNEL_USERNAME()}`)
-    .row()
-    .text("✅ Join Kar Li — Verify", "verify_join");
+  const s = await getSettings();
+  const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
+  const backupLink = asHttpsLink(s.backup_group_link);
+  const kb = new InlineKeyboard();
+  if (mainLink) kb.url("📢 Main Group Join Karein", mainLink).row();
+  if (backupLink) kb.url("🗂️ Backup Group Join Karein", backupLink).row();
+  kb.text("✅ Join Kar Li — Verify", "verify_join");
   await ctx.reply(
     `🔒 *Bot Use Karne Ke Liye Pehle Group Join Karein!*\n\n` +
-    `📢 Main Group: @${CHANNEL_USERNAME()}\n` +
-    `🗂️ Backup Group: @${BACKUP_CHANNEL_USERNAME()}\n\n` +
-    `Koi ek group join karke *"✅ Join Kar Li — Verify"* button dabaao.`,
+    (mainLink ? `📢 Main Group: ${mainLink}\n` : "") +
+    (backupLink ? `🗂️ Backup Group: ${backupLink}\n\n` : "\n") +
+    `Join karke *"✅ Join Kar Li — Verify"* button dabaao.`,
     { parse_mode: "Markdown", reply_markup: kb }
-  ).catch(() => {});
+  ).catch((e) => console.error("[sendForceJoinMsg]", (e as Error).message));
+}
+
+// ── Daily TMDB digest: 1 upcoming + 2 released, never-repeat, never auto-delete ──
+async function maybeSendDailyDigest(bot: Bot, userId: number) {
+  try {
+    const key = `daily_sent_user_${userId}`;
+    const { data: row } = await supabaseAdmin
+      .from("bot_settings").select("value").eq("key", key).maybeSingle();
+    const todayUTC = new Date().toISOString().slice(0, 10);
+    if (row && (row as any).value === todayUTC) return;
+
+    const sent = await getSentTmdbIds();
+    const released = await getIndianMoviesByType("new", 12);
+    const upcoming = await getIndianMoviesByType("upcoming", 12);
+    const freshReleased = released.filter((m) => !sent.has(m._tmdbId)).slice(0, 2);
+    const freshUpcoming = upcoming.filter((m) => !sent.has(m._tmdbId)).slice(0, 1);
+    if (!freshReleased.length && !freshUpcoming.length) {
+      // Nothing new — still mark sent to avoid hammering TMDB on every msg
+      await supabaseAdmin.from("bot_settings").upsert({
+        key, value: todayUTC as any, updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+      return;
+    }
+
+    const intro =
+      `🎬 *Daily Movie Update — ${todayUTC}*\n\n` +
+      `🆕 ${freshReleased.length} recently released  •  🔮 ${freshUpcoming.length} upcoming`;
+    await bot.api.sendMessage(userId, intro, { parse_mode: "Markdown" }).catch(() => {});
+
+    const send = async (m: any, label: string) => {
+      const cap =
+        `${label} *${escapeMarkdown(m.Title)}* (${m.Year})\n` +
+        (m._releaseDate ? `📅 ${escapeMarkdown(m._releaseDate)}\n` : "") +
+        (m._language && m._language !== "N/A" ? `🌐 ${escapeMarkdown(m._language)}\n` : "") +
+        (m.imdbRating !== "N/A" ? `⭐ TMDB: ${m.imdbRating}/10\n` : "") +
+        (m.Plot !== "N/A" ? `\n📖 ${escapeMarkdown(String(m.Plot).slice(0, 220))}` : "");
+      try {
+        await bot.api.sendPhoto(userId, m.Poster, { caption: cap, parse_mode: "Markdown" });
+      } catch (e) {
+        console.error("[daily digest send]", userId, (e as Error).message);
+      }
+    };
+    for (const m of freshReleased) await send(m, "🆕");
+    for (const m of freshUpcoming) await send(m, "🔮");
+
+    await markTmdbSent([
+      ...freshReleased.map((m) => ({ tmdb_id: m._tmdbId, kind: "released" })),
+      ...freshUpcoming.map((m) => ({ tmdb_id: m._tmdbId, kind: "upcoming" })),
+    ]);
+    await supabaseAdmin.from("bot_settings").upsert({
+      key, value: todayUTC as any, updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+  } catch (e) {
+    console.error("[daily digest]", (e as Error).message);
+  }
 }
 
 // ─── FIX 2: finishUpload — extracted and hardened ────────────────────────────

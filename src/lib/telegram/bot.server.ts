@@ -142,27 +142,36 @@ function movieBtnLabel(m: MovieRow): string {
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
 }
 
-function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
+async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
+  const s = await getSettings();
+  if (!s.autodelete_status) return;
+  const ms = Math.max(2, s.autodelete_timer) * 1000;
   setTimeout(() => {
     msgIds.forEach((id) => {
       if (id) api.deleteMessage(chatId, id).catch(() => {});
     });
-  }, AUTO_DELETE_MS);
+  }, ms);
 }
 
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
-  const msg = await ctx.reply(text, opts).catch(() => null);
+  const msg = await ctx.reply(text, opts).catch((e) => {
+    console.error("[tempReply]", (e as Error).message);
+    return null;
+  });
   if (!isA && msg && ctx.chat?.id) {
-    scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
+    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
 }
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
-  const msg = await ctx.replyWithPhoto(photo, opts).catch(() => null);
+  const msg = await ctx.replyWithPhoto(photo, opts).catch((e) => {
+    console.error("[tempPhoto]", (e as Error).message);
+    return null;
+  });
   if (!isA && msg && ctx.chat?.id) {
-    scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
+    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
   }
   return msg;
 }

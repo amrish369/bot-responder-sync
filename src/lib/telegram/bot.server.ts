@@ -474,6 +474,11 @@ export function createBot(): Bot {
       return;
     }
     if (isAdmin(uid)) return next();
+    // Daily TMDB digest (private chat only, non-blocking)
+    if (ctx.chat?.type === "private") {
+      maybeSendDailyDigest(bot, uid).catch((e) =>
+        console.error("[daily digest hook]", (e as Error).message));
+    }
 
     if (ctx.callbackQuery?.data === "verify_join") {
       const joined = await isChannelMember(bot, uid);

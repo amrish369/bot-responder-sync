@@ -1140,47 +1140,44 @@ export function createBot(): Bot {
       const sizeLabel = fmtSize(fileSize);
       const autoQual = qualityFromSize(fileSize);
 
-      // Check if admin previously entered /fastupload mode
-      const existing = await getPendingUpload(uid);
-      const fastMode = existing?.mode === "fastupload";
+      // STRICT mode-controller: read persistent upload_mode from settings
+      const s = await getSettings(true);
+      const fastMode = s.upload_mode === "fast";
 
-      // FAST UPLOAD: parse caption fully and save in one shot
-      if (fastMode || (caption && /\b(19\d{2}|20\d{2})\b/.test(caption))) {
+      if (fastMode) {
+        // FAST: parse caption fully, save one-shot. Never start wizard.
         const parsed = parseCaption(caption);
-        if (parsed.name) {
-          await clearPendingUpload(uid);
-          const pend = {
-            mode: "upload",
-            file_id: fileId,
-            file_kind: fileKind,
-            file_size: fileSize,
-            name: parsed.name,
-            year: parsed.year ? String(parsed.year) : null,
-            language: parsed.language,
-            quality: parsed.quality || autoQual,
-          };
-          return finishUpload(ctx, pend, uid);
-        }
-        if (fastMode) {
+        if (!parsed.name) {
           return ctx.reply(
-            "⚠️ /fastupload mode ON hai par caption se name parse nahi hua.\nCaption format: `War 2019 720p Hindi`",
+            "⚠️ Fast Upload mode ON hai par caption se name parse nahi hua.\n\nCaption format: `War 2019 720p Hindi`",
             { parse_mode: "Markdown" }
           );
         }
+        await clearPendingUpload(uid);
+        const pend = {
+          mode: "upload",
+          file_id: fileId,
+          file_kind: fileKind,
+          file_size: fileSize,
+          name: parsed.name,
+          year: parsed.year ? String(parsed.year) : null,
+          language: parsed.language,
+          quality: parsed.quality || autoQual,
+        };
+        return finishUpload(ctx, pend, uid);
       }
 
-      // Step-by-step (auto-detect quality from size)
+      // NORMAL: always start step-by-step wizard, never parse caption
       await clearPendingUpload(uid);
       await setPendingUpload(uid, {
         mode: "upload", step: "name", file_id: fileId, file_kind: fileKind, file_size: fileSize,
       });
       return ctx.reply(
-        `✅ *File Received!*` +
+        `✅ *File Received — Normal Upload*` +
         (sizeLabel ? ` (${sizeLabel})` : "") +
         (autoQual ? ` → 📺 Auto-detected: *${autoQual}*` : "") +
         `\n\n📝 *Step 1/3:* Movie ka naam type karein:\n\n` +
-        `_Tip: caption mein \`Name 2019 720p Hindi\` likho to ek-shot save hoga._\n` +
-        `_Ya /fastupload toggle karein._`,
+        `_Tip: \`/fastupload on\` se caption-based one-shot upload enable hota hai._`,
         { parse_mode: "Markdown" }
       );
     }

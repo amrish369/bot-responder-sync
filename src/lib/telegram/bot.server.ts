@@ -408,6 +408,14 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     );
   }
 
+  // Mirror to storage channel so future deliveries use copyMessage
+  // (decoupled from this bot token's file_id mapping).
+  const archived = await archiveMovieToStorage(ctx.api, inserted).catch(() => null);
+  if (archived) {
+    inserted.storage_chat_id = archived.chat_id;
+    inserted.storage_message_id = archived.message_id;
+  }
+
   const sizeLabel = fmtSize(pend.file_size);
   const caption =
     `✅ *Movie Saved!*\n\n` +

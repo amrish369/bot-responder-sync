@@ -372,6 +372,8 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     type: null,
     added_by: adminId,
     file_size: pend.file_size ?? null,
+    storage_chat_id: null,
+    storage_message_id: null,
   });
   await clearPendingUpload(adminId);
 

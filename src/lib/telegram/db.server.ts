@@ -12,6 +12,8 @@ export interface MovieRow {
   added_by: number | null;
   created_at: string;
   file_size: number | null;
+  storage_chat_id: number | null;
+  storage_message_id: number | null;
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {

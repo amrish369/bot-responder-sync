@@ -59,6 +59,12 @@ import {
   normaliseChatRef,
   asHttpsLink,
 } from "./settings.server";
+import {
+  archiveMovieToStorage,
+  getMigrationProgress,
+  runMigration,
+  stopMigration,
+} from "./storage.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 // Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
@@ -95,6 +101,24 @@ function fileKindFromMessage(msg: any): "video" | "document" {
 }
 
 async function sendMovieFile(api: any, chatId: number | string, movie: MovieRow, opts: any) {
+  // Future-proof delivery: prefer copyMessage from the storage channel so the
+  // bot is not tied to a single file_id. Fall back to direct file_id send.
+  if (movie.storage_chat_id && movie.storage_message_id) {
+    try {
+      return await api.copyMessage(
+        chatId,
+        movie.storage_chat_id,
+        movie.storage_message_id,
+        opts,
+      );
+    } catch (e) {
+      console.error(
+        "[sendMovieFile] copyMessage failed, falling back to file_id",
+        movie.id,
+        (e as Error).message,
+      );
+    }
+  }
   if (movie.file_kind === "document") {
     return api.sendDocument(chatId, movie.file_id, opts);
   }

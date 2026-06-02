@@ -987,9 +987,122 @@ export function createBot(): Bot {
       `🗑 Auto Delete: *${s.autodelete_status ? "ON" : "OFF"}* (${s.autodelete_timer}s)\n` +
       `🔒 Force Join: *${s.force_join_link ?? "—"}*\n` +
       `📢 Main Group: ${s.main_group_link ?? "—"}\n` +
-      `🗂️ Backup Group: ${s.backup_group_link ?? "—"}`,
+      `🗂️ Backup Group: ${s.backup_group_link ?? "—"}\n` +
+      `💾 Storage Channel: \`${s.storage_channel_id}\``,
       { parse_mode: "Markdown" }
     );
+  });
+
+  // ── /storage — storage channel status + counts ──
+  bot.command("storage", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const s = await getSettings(true);
+    const { count: total } = await supabaseAdmin
+      .from("movies").select("*", { count: "exact", head: true });
+    const { count: archived } = await supabaseAdmin
+      .from("movies").select("*", { count: "exact", head: true })
+      .not("storage_message_id", "is", null);
+    const { count: legacy } = await supabaseAdmin
+      .from("movies").select("*", { count: "exact", head: true })
+      .is("storage_message_id", null);
+    let chatTitle = "—";
+    try {
+      const info: any = await ctx.api.getChat(s.storage_channel_id);
+      chatTitle = info?.title || info?.username || String(s.storage_channel_id);
+    } catch (e) {
+      chatTitle = `⚠️ inaccessible (${(e as Error).message})`;
+    }
+    return ctx.reply(
+      `💾 *Storage Status*\n\n` +
+      `Channel: \`${s.storage_channel_id}\`\n` +
+      `Title: ${escapeMarkdown(chatTitle)}\n\n` +
+      `🎬 Total movies: *${total ?? 0}*\n` +
+      `✅ Archived: *${archived ?? 0}*\n` +
+      `🕰 Legacy (file_id only): *${legacy ?? 0}*\n\n` +
+      `Run /migrate_old_files to mirror legacy files.`,
+      { parse_mode: "Markdown" },
+    );
+  });
+
+  // ── /setstoragechannel <-100...id> ──
+  bot.command("setstoragechannel", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const raw = (ctx.message?.text ?? "").replace("/setstoragechannel", "").trim();
+    const id = Number(raw);
+    if (!Number.isFinite(id) || !raw) {
+      return ctx.reply("Usage: `/setstoragechannel -100xxxxxxxxxx`", { parse_mode: "Markdown" });
+    }
+    await setSetting("storage_channel_id", id);
+    return ctx.reply(`✅ Storage channel set to \`${id}\``, { parse_mode: "Markdown" });
+  });
+
+  // ── /migrate_old_files — mirror legacy file_id movies into storage ──
+  bot.command("migrate_old_files", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const cur = await getMigrationProgress();
+    if (cur.running) {
+      return ctx.reply(
+        `⏳ Migration already running.\n` +
+        `Done: ${cur.done} · Failed: ${cur.failed} · Last id: ${cur.last_id}/${cur.total}\n` +
+        `Use /migrate_stop to cancel.`,
+      );
+    }
+    await ctx.reply("🚚 Starting migration in background. Use /migrate_status to track. Use /migrate_stop to pause.");
+    // Fire-and-forget; updates DB progress so it survives across worker invocations.
+    runMigration(ctx.api, {
+      batch: 25,
+      onProgress: async (p) => {
+        try {
+          await ctx.api.sendMessage(
+            ctx.from!.id,
+            `📦 Migration progress: ${p.done}/${p.total} done · ${p.failed} failed · last id ${p.last_id}`,
+          );
+        } catch {}
+      },
+    })
+      .then(async (p) => {
+        try {
+          await ctx.api.sendMessage(
+            ctx.from!.id,
+            `✅ Migration finished.\nDone: *${p.done}* · Failed: *${p.failed}* · Total scanned: *${p.total}*`,
+            { parse_mode: "Markdown" },
+          );
+        } catch {}
+      })
+      .catch((e) => console.error("[migrate] fatal", (e as Error).message));
+  });
+
+  bot.command("migrate_status", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const p = await getMigrationProgress();
+    return ctx.reply(
+      `📦 *Migration Status*\n\n` +
+      `State: *${p.running ? "RUNNING" : "IDLE"}*\n` +
+      `Done: *${p.done}* / Total: *${p.total}*\n` +
+      `Failed: *${p.failed}*\n` +
+      `Last id: \`${p.last_id}\`\n` +
+      (p.started_at ? `Started: ${p.started_at}` : ``),
+      { parse_mode: "Markdown" },
+    );
+  });
+
+  bot.command("migrate_stop", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    await stopMigration();
+    return ctx.reply("🛑 Migration stop requested. Will halt after current item.");
+  });
+
+  // ── /export_users — JSON dump of all users (admin DM) ──
+  bot.command("export_users", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    const users = await listAllUsers();
+    const buf = Buffer.from(JSON.stringify(users, null, 2), "utf8");
+    try {
+      await ctx.api.sendDocument(ctx.from!.id, new (await import("grammy")).InputFile(buf, `users-${Date.now()}.json`));
+      return ctx.reply(`✅ Exported ${users.length} users to your DM.`);
+    } catch (e) {
+      return ctx.reply(`❌ Export failed: ${(e as Error).message}`);
+    }
   });
 
   // ── /promotion — 2-step wizard ──

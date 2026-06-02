@@ -613,28 +613,28 @@ export function createBot(): Bot {
 
   bot.command("help", async (ctx) => {
     const helpText =
-      `🎬 *CineRadar AI — Commands*\n\n` +
-      `🔍 *Search:* Just type movie name (min 3 chars)\n` +
-      `📺 *Filters:* Year / Language / Quality buttons appear after search\n` +
-      `📩 *Request:* Button appears if movie not found\n\n` +
-      `🎭 *Mood Search:* Type your mood and get instant suggestion!\n` +
+      `🎬 <b>CineRadar AI — Commands</b>\n\n` +
+      `🔍 <b>Search:</b> Just type movie name (min 3 chars)\n` +
+      `📺 <b>Filters:</b> Year / Language / Quality buttons appear after search\n` +
+      `📩 <b>Request:</b> Button appears if movie not found\n\n` +
+      `🎭 <b>Mood Search:</b> Type your mood and get instant suggestion!\n` +
       `   happy • sad • romantic • scary • funny • action • chill • mystery\n` +
       `   Ya emoji bhejo: 😄 😢 ❤️ 😱 😂 💥 😌 🔍\n\n` +
       `🎲 /random — Database se random movie\n` +
       `   Ya sirf "random" type karo\n\n` +
-      `🆕 /new — New Bollywood & South Indian releases\n` +
+      `🆕 /new — New Bollywood &amp; South Indian releases\n` +
       `🔮 /upcoming — Upcoming Indian movies\n` +
       `📋 /myrequests — Track your requests\n\n` +
-      `⚡ *3x Fast Download:* Website par ek baar visit karein\n\n` +
-      `👑 *Admin only*\n` +
-      `• Uploads: /upload, /fastupload on|off, /edit <id>\n` +
-      `• Library: /search, /delete <id>, /random\n` +
-      `• Requests: /pending, /reply <reqId> <msg>\n` +
-      `• Users: /stats, /ban <id>, /unban <id>, /dm <id> <msg>, /convo <id>, /endconvo, /export_users\n` +
-      `• Broadcast: /broadcast <msg>, /promote <msg>, /promotion (wizard)\n` +
+      `⚡ <b>3x Fast Download:</b> Website par ek baar visit karein\n\n` +
+      `👑 <b>Admin only</b>\n` +
+      `• Uploads: /upload, /fastupload on|off, /edit &lt;id&gt;\n` +
+      `• Library: /search, /delete &lt;id&gt;, /random\n` +
+      `• Requests: /pending, /reply &lt;reqId&gt; &lt;msg&gt;\n` +
+      `• Users: /stats, /ban &lt;id&gt;, /unban &lt;id&gt;, /dm &lt;id&gt; &lt;msg&gt;, /convo &lt;id&gt;, /endconvo, /export_users\n` +
+      `• Broadcast: /broadcast &lt;msg&gt;, /promote &lt;msg&gt;, /promotion (wizard)\n` +
       `• Settings: /settings, /autodelete on|off [sec], /setforcejoin, /removeforcejoin, /setmaingroup, /setbackupgroup\n` +
-      `• Storage: /storage, /setstoragechannel <-100…>, /migrate_old_files, /migrate_status, /migrate_stop`;
-    await tempReply(ctx, helpText, { parse_mode: "Markdown" });
+      `• Storage: /storage, /setstoragechannel &lt;-100…&gt;, /migrate_old_files, /migrate_status, /migrate_stop`;
+    await tempReply(ctx, helpText, { parse_mode: "HTML" });
   });
 
   bot.command("new", async (ctx) => {
@@ -1018,14 +1018,14 @@ export function createBot(): Bot {
       chatTitle = `⚠️ inaccessible (${(e as Error).message})`;
     }
     return ctx.reply(
-      `💾 *Storage Status*\n\n` +
-      `Channel: \`${s.storage_channel_id}\`\n` +
-      `Title: ${escapeMarkdown(chatTitle)}\n\n` +
-      `🎬 Total movies: *${total ?? 0}*\n` +
-      `✅ Archived: *${archived ?? 0}*\n` +
-      `🕰 Legacy (file_id only): *${legacy ?? 0}*\n\n` +
+      `💾 <b>Storage Status</b>\n\n` +
+      `Channel: <code>${s.storage_channel_id}</code>\n` +
+      `Title: ${String(chatTitle).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!))}\n\n` +
+      `🎬 Total movies: <b>${total ?? 0}</b>\n` +
+      `✅ Archived: <b>${archived ?? 0}</b>\n` +
+      `🕰 Legacy (file_id only): <b>${legacy ?? 0}</b>\n\n` +
       `Run /migrate_old_files to mirror legacy files.`,
-      { parse_mode: "Markdown" },
+      { parse_mode: "HTML" },
     );
   });
 

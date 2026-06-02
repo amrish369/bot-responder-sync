@@ -626,9 +626,14 @@ export function createBot(): Bot {
       `🔮 /upcoming — Upcoming Indian movies\n` +
       `📋 /myrequests — Track your requests\n\n` +
       `⚡ *3x Fast Download:* Website par ek baar visit karein\n\n` +
-      `👑 *Admin only:* /upload, /edit, /stats, /broadcast, /promote, /delete, /ban, /unban\n` +
-      `               /pending, /search, /dm, /reply <reqId> <msg>\n` +
-      `               /convo, /endconvo, /fastupload`;
+      `👑 *Admin only*\n` +
+      `• Uploads: /upload, /fastupload on|off, /edit <id>\n` +
+      `• Library: /search, /delete <id>, /random\n` +
+      `• Requests: /pending, /reply <reqId> <msg>\n` +
+      `• Users: /stats, /ban <id>, /unban <id>, /dm <id> <msg>, /convo <id>, /endconvo, /export_users\n` +
+      `• Broadcast: /broadcast <msg>, /promote <msg>, /promotion (wizard)\n` +
+      `• Settings: /settings, /autodelete on|off [sec], /setforcejoin, /removeforcejoin, /setmaingroup, /setbackupgroup\n` +
+      `• Storage: /storage, /setstoragechannel <-100…>, /migrate_old_files, /migrate_status, /migrate_stop`;
     await tempReply(ctx, helpText, { parse_mode: "Markdown" });
   });
 

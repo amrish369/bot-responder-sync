@@ -159,6 +159,8 @@ export type Database = {
           id: number
           language: string | null
           quality: string | null
+          storage_chat_id: number | null
+          storage_message_id: number | null
           title: string
           type: string | null
           year: number | null
@@ -172,6 +174,8 @@ export type Database = {
           id?: number
           language?: string | null
           quality?: string | null
+          storage_chat_id?: number | null
+          storage_message_id?: number | null
           title: string
           type?: string | null
           year?: number | null
@@ -185,6 +189,8 @@ export type Database = {
           id?: number
           language?: string | null
           quality?: string | null
+          storage_chat_id?: number | null
+          storage_message_id?: number | null
           title?: string
           type?: string | null
           year?: number | null

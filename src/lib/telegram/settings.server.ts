@@ -13,6 +13,7 @@ export interface BotSettings {
   force_join_link: string | null;     // @username or https URL
   main_group_link: string | null;     // https URL or @username
   backup_group_link: string | null;   // https URL or @username
+  storage_channel_id: number;         // -100... channel id for movie file storage
 }
 
 const DEFAULTS: BotSettings = {
@@ -22,6 +23,7 @@ const DEFAULTS: BotSettings = {
   force_join_link: null,
   main_group_link: null,
   backup_group_link: null,
+  storage_channel_id: -1004299446417,
 };
 
 let cache: { at: number; data: BotSettings } | null = null;

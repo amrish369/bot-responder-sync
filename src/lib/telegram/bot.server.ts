@@ -1044,37 +1044,46 @@ export function createBot(): Bot {
   // ── /migrate_old_files — mirror legacy file_id movies into storage ──
   bot.command("migrate_old_files", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
-    const cur = await getMigrationProgress();
-    if (cur.running) {
-      return ctx.reply(
-        `⏳ Migration already running.\n` +
-        `Done: ${cur.done} · Failed: ${cur.failed} · Last id: ${cur.last_id}/${cur.total}\n` +
-        `Use /migrate_stop to cancel.`,
-      );
+    // Parse optional batch size: /migrate_old_files 20
+    const arg = (ctx.message?.text ?? "").replace("/migrate_old_files", "").trim();
+    const batch = Math.min(Math.max(Number(arg) || 15, 1), 25);
+
+    // Quick remaining count for the ack message.
+    const { count: remaining } = await supabaseAdmin
+      .from("movies")
+      .select("*", { count: "exact", head: true })
+      .is("storage_message_id", null);
+
+    if (!remaining) {
+      return ctx.reply("✅ No legacy movies left — everything is already in storage channel.");
     }
-    await ctx.reply("🚚 Starting migration in background. Use /migrate_status to track. Use /migrate_stop to pause.");
-    // Fire-and-forget; updates DB progress so it survives across worker invocations.
-    runMigration(ctx.api, {
-      batch: 25,
-      onProgress: async (p) => {
-        try {
-          await ctx.api.sendMessage(
-            ctx.from!.id,
-            `📦 Migration progress: ${p.done}/${p.total} done · ${p.failed} failed · last id ${p.last_id}`,
-          );
-        } catch {}
-      },
-    })
-      .then(async (p) => {
-        try {
-          await ctx.api.sendMessage(
-            ctx.from!.id,
-            `✅ Migration finished.\nDone: *${p.done}* · Failed: *${p.failed}* · Total scanned: *${p.total}*`,
-            { parse_mode: "Markdown" },
-          );
-        } catch {}
-      })
-      .catch((e) => console.error("[migrate] fatal", (e as Error).message));
+
+    await ctx.reply(
+      `🚚 Migrating up to <b>${batch}</b> of <b>${remaining}</b> legacy movies now…\n` +
+        `(Worker runtime is short-lived — re-run this command to continue. Use /migrate_status anytime.)`,
+      { parse_mode: "HTML" },
+    );
+
+    try {
+      const p = await runMigration(ctx.api, { batch });
+      const { count: left } = await supabaseAdmin
+        .from("movies")
+        .select("*", { count: "exact", head: true })
+        .is("storage_message_id", null);
+      await ctx.reply(
+        `📦 <b>Batch complete</b>\n\n` +
+          `✅ Done (total): <b>${p.done}</b>\n` +
+          `❌ Failed (total): <b>${p.failed}</b>\n` +
+          `🕰 Remaining legacy: <b>${left ?? 0}</b>\n\n` +
+          ((left ?? 0) > 0
+            ? `Run <code>/migrate_old_files</code> again to continue.`
+            : `🎉 All movies are now mirrored to the storage channel.`),
+        { parse_mode: "HTML" },
+      );
+    } catch (e) {
+      console.error("[migrate] fatal", (e as Error).message);
+      await ctx.reply(`❌ Migration error: ${(e as Error).message}`);
+    }
   });
 
   bot.command("migrate_status", async (ctx) => {

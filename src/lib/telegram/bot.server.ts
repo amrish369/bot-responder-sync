@@ -61,6 +61,7 @@ import {
 } from "./settings.server";
 import {
   archiveMovieToStorage,
+  getMigrationDbStats,
   getMigrationProgress,
   runMigration,
   stopMigration,

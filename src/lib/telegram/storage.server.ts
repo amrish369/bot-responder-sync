@@ -136,17 +136,31 @@ export async function runMigration(
       `done=${done} failed=${failed} batch=${batch}`,
   );
 
-  // Pull the next page of legacy rows. We do NOT use last_id as a hard cursor —
-  // failed rows would be skipped forever. Instead, always fetch rows that still
-  // have storage_message_id IS NULL; on success they leave the set, on failure
-  // they remain but we increment failed and a future invocation can retry.
-  const { data: rows, error } = await supabaseAdmin
+  // Pull the next page after last_id, then wrap to the beginning when needed.
+  // This prevents one bad file_id from blocking all later movies while still
+  // retrying failed legacy rows on later invocations.
+  let page = supabaseAdmin
     .from("movies")
     .select("*")
     .is("storage_message_id", null)
     .not("file_id", "is", null)
+    .gt("id", prior.last_id ?? 0)
     .order("id", { ascending: true })
     .limit(batch);
+  let { data: rows, error } = await page;
+
+  if (!error && (!rows || rows.length === 0) && (prior.last_id ?? 0) > 0) {
+    console.log("[migrate] reached end of legacy set, wrapping to first unmigrated row");
+    const wrapped = await supabaseAdmin
+      .from("movies")
+      .select("*")
+      .is("storage_message_id", null)
+      .not("file_id", "is", null)
+      .order("id", { ascending: true })
+      .limit(batch);
+    rows = wrapped.data;
+    error = wrapped.error;
+  }
 
   if (error) {
     console.error("[migrate] page error:", error.message);

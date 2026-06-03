@@ -61,6 +61,7 @@ import {
 } from "./settings.server";
 import {
   archiveMovieToStorage,
+  getMigrationDbStats,
   getMigrationProgress,
   runMigration,
   stopMigration,
@@ -1002,14 +1003,7 @@ export function createBot(): Bot {
   bot.command("storage", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const s = await getSettings(true);
-    const { count: total } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true });
-    const { count: archived } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true })
-      .not("storage_message_id", "is", null);
-    const { count: legacy } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true })
-      .is("storage_message_id", null);
+    const { total, archived, legacy } = await getMigrationDbStats();
     let chatTitle = "—";
     try {
       const info: any = await ctx.api.getChat(s.storage_channel_id);
@@ -1021,9 +1015,9 @@ export function createBot(): Bot {
       `💾 <b>Storage Status</b>\n\n` +
       `Channel: <code>${s.storage_channel_id}</code>\n` +
       `Title: ${String(chatTitle).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!))}\n\n` +
-      `🎬 Total movies: <b>${total ?? 0}</b>\n` +
-      `✅ Archived: <b>${archived ?? 0}</b>\n` +
-      `🕰 Legacy (file_id only): <b>${legacy ?? 0}</b>\n\n` +
+      `🎬 Total movies: <b>${total}</b>\n` +
+      `✅ Archived: <b>${archived}</b>\n` +
+      `🕰 Legacy (file_id only): <b>${legacy}</b>\n\n` +
       `Run /migrate_old_files to mirror legacy files.`,
       { parse_mode: "HTML" },
     );
@@ -1048,34 +1042,33 @@ export function createBot(): Bot {
     const arg = (ctx.message?.text ?? "").replace("/migrate_old_files", "").trim();
     const batch = Math.min(Math.max(Number(arg) || 15, 1), 25);
 
-    // Quick remaining count for the ack message.
-    const { count: remaining } = await supabaseAdmin
-      .from("movies")
-      .select("*", { count: "exact", head: true })
-      .is("storage_message_id", null);
+    const stats = await getMigrationDbStats();
+    console.log(`[migrate command] total=${stats.total} archived=${stats.archived} legacy=${stats.legacy} batch=${batch}`);
 
-    if (!remaining) {
+    if (!stats.legacy) {
       return ctx.reply("✅ No legacy movies left — everything is already in storage channel.");
     }
 
     await ctx.reply(
-      `🚚 Migrating up to <b>${batch}</b> of <b>${remaining}</b> legacy movies now…\n` +
-        `(Worker runtime is short-lived — re-run this command to continue. Use /migrate_status anytime.)`,
+      `🚚 <b>Migration batch started</b>\n\n` +
+        `Total movies: <b>${stats.total}</b>\n` +
+        `Old movies found: <b>${stats.legacy}</b>\n` +
+        `This batch: <b>${batch}</b>\n\n` +
+        `Please wait, I will send the result in this chat.`,
       { parse_mode: "HTML" },
     );
 
     try {
       const p = await runMigration(ctx.api, { batch });
-      const { count: left } = await supabaseAdmin
-        .from("movies")
-        .select("*", { count: "exact", head: true })
-        .is("storage_message_id", null);
+      const after = await getMigrationDbStats();
       await ctx.reply(
         `📦 <b>Batch complete</b>\n\n` +
           `✅ Done (total): <b>${p.done}</b>\n` +
           `❌ Failed (total): <b>${p.failed}</b>\n` +
-          `🕰 Remaining legacy: <b>${left ?? 0}</b>\n\n` +
-          ((left ?? 0) > 0
+          `🕰 Remaining legacy: <b>${after.legacy}</b>\n` +
+          (p.last_error ? `⚠️ Last error: <code>${String(p.last_error).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!)).slice(0, 800)}</code>\n` : ``) +
+          `\n` +
+          (after.legacy > 0
             ? `Run <code>/migrate_old_files</code> again to continue.`
             : `🎉 All movies are now mirrored to the storage channel.`),
         { parse_mode: "HTML" },
@@ -1089,14 +1082,20 @@ export function createBot(): Bot {
   bot.command("migrate_status", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const p = await getMigrationProgress();
+    const stats = await getMigrationDbStats();
     return ctx.reply(
-      `📦 *Migration Status*\n\n` +
-      `State: *${p.running ? "RUNNING" : "IDLE"}*\n` +
-      `Done: *${p.done}* / Total: *${p.total}*\n` +
-      `Failed: *${p.failed}*\n` +
-      `Last id: \`${p.last_id}\`\n` +
+      `📦 <b>Migration Status</b>\n\n` +
+      `State: <b>${p.running ? "RUNNING" : "IDLE"}</b>\n` +
+      `Total movies: <b>${stats.total}</b>\n` +
+      `Archived: <b>${stats.archived}</b>\n` +
+      `Old left: <b>${stats.legacy}</b>\n` +
+      `Done counter: <b>${p.done}</b>\n` +
+      `Failed counter: <b>${p.failed}</b>\n` +
+      `Current id: <code>${p.current_id ?? "—"}</code>\n` +
+      `Last id: <code>${p.last_id}</code>\n` +
+      (p.last_error ? `Last error: <code>${String(p.last_error).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!)).slice(0, 800)}</code>\n` : ``) +
       (p.started_at ? `Started: ${p.started_at}` : ``),
-      { parse_mode: "Markdown" },
+      { parse_mode: "HTML" },
     );
   });
 

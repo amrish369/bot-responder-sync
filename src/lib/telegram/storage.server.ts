@@ -42,6 +42,31 @@ export interface MigrationProgress {
   failed: number;
   total: number;
   started_at: string | null;
+  current_id?: number | null;
+  last_error?: string | null;
+  failed_ids?: number[];
+}
+
+function telegramErrorDetails(error: unknown): string {
+  const e = error as any;
+  const parts = [
+    e?.description,
+    e?.message,
+    e?.error_code ? `code=${e.error_code}` : null,
+    e?.response?.description,
+    e?.response?.error_code ? `response_code=${e.response.error_code}` : null,
+  ].filter(Boolean);
+  if (parts.length) return parts.join(" | ").slice(0, 1000);
+  try { return JSON.stringify(error).slice(0, 1000); } catch { return String(error); }
+}
+
+export async function getMigrationDbStats(): Promise<{ total: number; archived: number; legacy: number }> {
+  const [{ count: total }, { count: archived }, { count: legacy }] = await Promise.all([
+    supabaseAdmin.from("movies").select("*", { count: "exact", head: true }),
+    supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).not("storage_message_id", "is", null),
+    supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).is("storage_message_id", null),
+  ]);
+  return { total: total ?? 0, archived: archived ?? 0, legacy: legacy ?? 0 };
 }
 
 export async function getMigrationProgress(): Promise<MigrationProgress> {
@@ -58,6 +83,9 @@ export async function getMigrationProgress(): Promise<MigrationProgress> {
     failed: Number(v.failed ?? 0),
     total: Number(v.total ?? 0),
     started_at: v.started_at ?? null,
+    current_id: v.current_id ?? null,
+    last_error: v.last_error ?? null,
+    failed_ids: Array.isArray(v.failed_ids) ? v.failed_ids.map(Number).filter(Number.isFinite) : [],
   };
 }
 

@@ -114,17 +114,11 @@ export async function runMigration(
   const s = await getSettings();
   const storageChat = s.storage_channel_id;
 
-  // Remaining legacy movies (recomputed every invocation so admins see progress).
-  const { count: remaining } = await supabaseAdmin
-    .from("movies")
-    .select("*", { count: "exact", head: true })
-    .is("storage_message_id", null);
-
+  const stats = await getMigrationDbStats();
   const prior = await getMigrationProgress();
-  // Preserve cumulative counters across invocations so admins see real totals.
-  let done = prior.done ?? 0;
+  let done = prior.done ?? stats.archived;
   let failed = prior.failed ?? 0;
-  const total = (done + failed) + (remaining ?? 0);
+  const total = stats.legacy;
 
   await setMigrationProgress({
     running: true,
@@ -133,10 +127,12 @@ export async function runMigration(
     done,
     failed,
     last_id: prior.last_id ?? 0,
+    current_id: null,
+    last_error: null,
   });
 
   console.log(
-    `[migrate] starting batch — storageChat=${storageChat} remaining=${remaining ?? 0} ` +
+    `[migrate] total old movies found=${stats.legacy} storageChat=${storageChat} ` +
       `done=${done} failed=${failed} batch=${batch}`,
   );
 
@@ -148,6 +144,7 @@ export async function runMigration(
     .from("movies")
     .select("*")
     .is("storage_message_id", null)
+    .not("file_id", "is", null)
     .order("id", { ascending: true })
     .limit(batch);
 
@@ -159,14 +156,14 @@ export async function runMigration(
 
   if (!rows || rows.length === 0) {
     console.log("[migrate] nothing left to migrate");
-    await setMigrationProgress({ running: false });
+    await setMigrationProgress({ running: false, total: 0, current_id: null });
     return await getMigrationProgress();
   }
 
   console.log(`[migrate] processing ${rows.length} legacy movie(s)`);
 
   let lastId = prior.last_id ?? 0;
-  const failedIds: number[] = [];
+  const failedIds: number[] = [...(prior.failed_ids ?? [])].slice(-25);
 
   for (const row of rows as any as MovieRow[]) {
     const cur2 = await getMigrationProgress();
@@ -174,8 +171,10 @@ export async function runMigration(
       console.log("[migrate] stop requested, halting batch");
       break;
     }
+    await setMigrationProgress({ current_id: row.id, last_error: null });
     console.log(
-      `[migrate] -> id=${row.id} kind=${row.file_kind} title=${JSON.stringify(row.title)}`,
+      `[migrate] current migrating movie ID=${row.id} kind=${row.file_kind} ` +
+        `file_id=${String(row.file_id).slice(0, 24)}… title=${JSON.stringify(row.title)}`,
     );
     try {
       const caption =
@@ -194,15 +193,17 @@ export async function runMigration(
         sent = await (api as any)[primary](storageChat, row.file_id, { caption });
       } catch (e1) {
         lastErr = e1;
+        const msg1 = telegramErrorDetails(e1);
         console.warn(
-          `[migrate] id=${row.id} ${primary} failed: ${(e1 as Error).message} — trying ${fallback}`,
+          `[migrate] id=${row.id} ${primary} failed: ${msg1} — trying ${fallback}`,
         );
         try {
           sent = await (api as any)[fallback](storageChat, row.file_id, { caption });
         } catch (e2) {
           lastErr = e2;
+          const msg2 = telegramErrorDetails(e2);
           console.error(
-            `[migrate] id=${row.id} ${fallback} also failed: ${(e2 as Error).message}`,
+            `[migrate] id=${row.id} ${fallback} also failed: ${msg2}`,
           );
         }
       }
@@ -214,30 +215,34 @@ export async function runMigration(
           storage_message_id: mid,
         });
         done++;
-        console.log(`[migrate] id=${row.id} archived as msg=${mid}`);
+        console.log(`[migrate] success id=${row.id} storage_chat_id=${storageChat} storage_message_id=${mid} success_count=${done} failed_count=${failed}`);
       } else {
         failed++;
         failedIds.push(row.id);
+        const errText = telegramErrorDetails(lastErr ?? "Telegram returned no message_id");
         console.error(
-          `[migrate] id=${row.id} FAILED — telegram error: ${(lastErr as Error)?.message ?? "unknown"}`,
+          `[migrate] FAILED id=${row.id} success_count=${done} failed_count=${failed} telegram_error=${errText}`,
         );
+        await setMigrationProgress({ last_error: `ID ${row.id}: ${errText}`, failed_ids: failedIds.slice(-25) });
       }
     } catch (e) {
       failed++;
       failedIds.push(row.id);
-      console.error(`[migrate] id=${row.id} unexpected: ${(e as Error).message}`);
+      const errText = telegramErrorDetails(e);
+      console.error(`[migrate] unexpected id=${row.id} success_count=${done} failed_count=${failed} error=${errText}`);
+      await setMigrationProgress({ last_error: `ID ${row.id}: ${errText}`, failed_ids: failedIds.slice(-25) });
     }
     lastId = row.id;
     await new Promise((r) => setTimeout(r, sleepMs));
-    await setMigrationProgress({ last_id: lastId, done, failed });
+    await setMigrationProgress({ last_id: lastId, done, failed, failed_ids: failedIds.slice(-25) });
   }
 
-  await setMigrationProgress({ running: false, last_id: lastId, done, failed });
+  const after = await getMigrationDbStats();
+  await setMigrationProgress({ running: false, last_id: lastId, done, failed, total: after.legacy, current_id: null, failed_ids: failedIds.slice(-25) });
   const final = await getMigrationProgress();
   console.log(
-    `[migrate] batch finished — done=${final.done} failed=${final.failed} remaining≈${
-      (remaining ?? 0) - rows.length + failedIds.length
-    } failedIds=[${failedIds.join(",")}]`,
+    `[migrate] batch finished — success_count=${final.done} failed_count=${final.failed} ` +
+      `remaining_old_movies=${after.legacy} failedIds=[${failedIds.join(",")}]`,
   );
   if (opts.onProgress) await opts.onProgress(final);
   return final;

@@ -1042,34 +1042,33 @@ export function createBot(): Bot {
     const arg = (ctx.message?.text ?? "").replace("/migrate_old_files", "").trim();
     const batch = Math.min(Math.max(Number(arg) || 15, 1), 25);
 
-    // Quick remaining count for the ack message.
-    const { count: remaining } = await supabaseAdmin
-      .from("movies")
-      .select("*", { count: "exact", head: true })
-      .is("storage_message_id", null);
+    const stats = await getMigrationDbStats();
+    console.log(`[migrate command] total=${stats.total} archived=${stats.archived} legacy=${stats.legacy} batch=${batch}`);
 
-    if (!remaining) {
+    if (!stats.legacy) {
       return ctx.reply("✅ No legacy movies left — everything is already in storage channel.");
     }
 
     await ctx.reply(
-      `🚚 Migrating up to <b>${batch}</b> of <b>${remaining}</b> legacy movies now…\n` +
-        `(Worker runtime is short-lived — re-run this command to continue. Use /migrate_status anytime.)`,
+      `🚚 <b>Migration batch started</b>\n\n` +
+        `Total movies: <b>${stats.total}</b>\n` +
+        `Old movies found: <b>${stats.legacy}</b>\n` +
+        `This batch: <b>${batch}</b>\n\n` +
+        `Please wait, I will send the result in this chat.`,
       { parse_mode: "HTML" },
     );
 
     try {
       const p = await runMigration(ctx.api, { batch });
-      const { count: left } = await supabaseAdmin
-        .from("movies")
-        .select("*", { count: "exact", head: true })
-        .is("storage_message_id", null);
+      const after = await getMigrationDbStats();
       await ctx.reply(
         `📦 <b>Batch complete</b>\n\n` +
           `✅ Done (total): <b>${p.done}</b>\n` +
           `❌ Failed (total): <b>${p.failed}</b>\n` +
-          `🕰 Remaining legacy: <b>${left ?? 0}</b>\n\n` +
-          ((left ?? 0) > 0
+          `🕰 Remaining legacy: <b>${after.legacy}</b>\n` +
+          (p.last_error ? `⚠️ Last error: <code>${String(p.last_error).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!)).slice(0, 800)}</code>\n` : ``) +
+          `\n` +
+          (after.legacy > 0
             ? `Run <code>/migrate_old_files</code> again to continue.`
             : `🎉 All movies are now mirrored to the storage channel.`),
         { parse_mode: "HTML" },

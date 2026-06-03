@@ -1082,14 +1082,20 @@ export function createBot(): Bot {
   bot.command("migrate_status", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const p = await getMigrationProgress();
+    const stats = await getMigrationDbStats();
     return ctx.reply(
-      `📦 *Migration Status*\n\n` +
-      `State: *${p.running ? "RUNNING" : "IDLE"}*\n` +
-      `Done: *${p.done}* / Total: *${p.total}*\n` +
-      `Failed: *${p.failed}*\n` +
-      `Last id: \`${p.last_id}\`\n` +
+      `📦 <b>Migration Status</b>\n\n` +
+      `State: <b>${p.running ? "RUNNING" : "IDLE"}</b>\n` +
+      `Total movies: <b>${stats.total}</b>\n` +
+      `Archived: <b>${stats.archived}</b>\n` +
+      `Old left: <b>${stats.legacy}</b>\n` +
+      `Done counter: <b>${p.done}</b>\n` +
+      `Failed counter: <b>${p.failed}</b>\n` +
+      `Current id: <code>${p.current_id ?? "—"}</code>\n` +
+      `Last id: <code>${p.last_id}</code>\n` +
+      (p.last_error ? `Last error: <code>${String(p.last_error).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!)).slice(0, 800)}</code>\n` : ``) +
       (p.started_at ? `Started: ${p.started_at}` : ``),
-      { parse_mode: "Markdown" },
+      { parse_mode: "HTML" },
     );
   });
 

@@ -1003,14 +1003,7 @@ export function createBot(): Bot {
   bot.command("storage", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const s = await getSettings(true);
-    const { count: total } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true });
-    const { count: archived } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true })
-      .not("storage_message_id", "is", null);
-    const { count: legacy } = await supabaseAdmin
-      .from("movies").select("*", { count: "exact", head: true })
-      .is("storage_message_id", null);
+    const { total, archived, legacy } = await getMigrationDbStats();
     let chatTitle = "—";
     try {
       const info: any = await ctx.api.getChat(s.storage_channel_id);
@@ -1022,9 +1015,9 @@ export function createBot(): Bot {
       `💾 <b>Storage Status</b>\n\n` +
       `Channel: <code>${s.storage_channel_id}</code>\n` +
       `Title: ${String(chatTitle).replace(/[&<>]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]!))}\n\n` +
-      `🎬 Total movies: <b>${total ?? 0}</b>\n` +
-      `✅ Archived: <b>${archived ?? 0}</b>\n` +
-      `🕰 Legacy (file_id only): <b>${legacy ?? 0}</b>\n\n` +
+      `🎬 Total movies: <b>${total}</b>\n` +
+      `✅ Archived: <b>${archived}</b>\n` +
+      `🕰 Legacy (file_id only): <b>${legacy}</b>\n\n` +
       `Run /migrate_old_files to mirror legacy files.`,
       { parse_mode: "HTML" },
     );

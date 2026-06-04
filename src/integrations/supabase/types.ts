@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_logs: {
+        Row: {
+          action: string
+          admin_email: string | null
+          created_at: string
+          details: Json | null
+          id: number
+        }
+        Insert: {
+          action: string
+          admin_email?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: number
+        }
+        Update: {
+          action?: string
+          admin_email?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: number
+        }
+        Relationships: []
+      }
+      admin_allowlist: {
+        Row: {
+          created_at: string
+          email: string
+          id: number
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: number
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: number
+        }
+        Relationships: []
+      }
       banned: {
         Row: {
           banned_at: string
@@ -47,6 +89,42 @@ export type Database = {
           key?: string
           updated_at?: string
           value?: Json
+        }
+        Relationships: []
+      }
+      bot_tokens: {
+        Row: {
+          bot_username: string | null
+          created_at: string
+          enabled: boolean
+          id: number
+          is_active: boolean
+          name: string
+          notes: string | null
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          bot_username?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: number
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          bot_username?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: number
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          token?: string
+          updated_at?: string
         }
         Relationships: []
       }

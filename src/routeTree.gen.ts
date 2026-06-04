@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
 import { Route as AuthenticatedAdminMoviesRouteImport } from './routes/_authenticated/admin.movies'
+import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authenticated/admin.broadcast'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicTelegramRegisterRouteImport } from './routes/api/public/telegram/register'
 
@@ -48,6 +49,12 @@ const AuthenticatedAdminMoviesRoute =
     path: '/admin/movies',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdminBroadcastRoute =
+  AuthenticatedAdminBroadcastRouteImport.update({
+    id: '/admin/broadcast',
+    path: '/admin/broadcast',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const ApiPublicTelegramWebhookRoute =
   ApiPublicTelegramWebhookRouteImport.update({
     id: '/api/public/telegram/webhook',
@@ -64,6 +71,7 @@ const ApiPublicTelegramRegisterRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
@@ -73,6 +81,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
@@ -84,6 +93,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/_authenticated/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/admin/broadcast'
     | '/admin/movies'
     | '/admin/users'
     | '/admin/'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/admin/broadcast'
     | '/admin/movies'
     | '/admin/users'
     | '/admin'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/admin/broadcast'
     | '/_authenticated/admin/movies'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
@@ -173,6 +186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminMoviesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/broadcast': {
+      id: '/_authenticated/admin/broadcast'
+      path: '/admin/broadcast'
+      fullPath: '/admin/broadcast'
+      preLoaderRoute: typeof AuthenticatedAdminBroadcastRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/public/telegram/webhook': {
       id: '/api/public/telegram/webhook'
       path: '/api/public/telegram/webhook'
@@ -191,12 +211,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminBroadcastRoute: typeof AuthenticatedAdminBroadcastRoute
   AuthenticatedAdminMoviesRoute: typeof AuthenticatedAdminMoviesRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminBroadcastRoute: AuthenticatedAdminBroadcastRoute,
   AuthenticatedAdminMoviesRoute: AuthenticatedAdminMoviesRoute,
   AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,

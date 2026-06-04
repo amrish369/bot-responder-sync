@@ -68,7 +68,7 @@ export const updateMovieAdmin = createServerFn({ method: "POST" })
     const allowed = ["title", "language", "quality", "year", "type"];
     const patch: Record<string, any> = {};
     for (const k of allowed) if (k in data.patch) patch[k] = data.patch[k];
-    const { error } = await supabaseAdmin.from("movies").update(patch).eq("id", data.id);
+    const { error } = await supabaseAdmin.from("movies").update(patch as any).eq("id", data.id);
     if (error) throw new Error(error.message);
     const { logActivity } = await import("./admin.server");
     await logActivity(email, "movie.update", { id: data.id, patch });

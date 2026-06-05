@@ -291,12 +291,21 @@ export const testBotConnection = createServerFn({ method: "POST" })
   });
 
 // ─── Per-bot webhook management ─────────────────────────────
-function publicOrigin(): string {
+async function publicOrigin(): Promise<string> {
   const env = process.env.PUBLIC_APP_URL || process.env.APP_URL;
   if (env) return env.replace(/\/$/, "");
-  const projectId = process.env.SUPABASE_PROJECT_ID || process.env.VITE_SUPABASE_PROJECT_ID;
-  // Lovable stable preview URL — works both pre and post publish
-  if (projectId) return `https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app`;
+  try {
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const req = getRequest();
+    if (req?.url) {
+      const u = new URL(req.url);
+      // Prefer forwarded host if behind a proxy
+      const fwdHost = req.headers.get("x-forwarded-host");
+      const fwdProto = req.headers.get("x-forwarded-proto") || u.protocol.replace(":", "");
+      const host = fwdHost || u.host;
+      return `${fwdProto}://${host}`;
+    }
+  } catch {}
   return "https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app";
 }
 
@@ -313,7 +322,7 @@ export const getBotWebhookInfo = createServerFn({ method: "POST" })
       fetch(`https://api.telegram.org/bot${token}/getMe`).then((r) => r.json()),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json()),
     ]);
-    const expectedUrl = `${publicOrigin()}/api/public/telegram/webhook/${data.id}`;
+    const expectedUrl = `${await publicOrigin()}/api/public/telegram/webhook/${data.id}`;
     return {
       ok: !!me.ok,
       me: me.result ?? null,
@@ -335,7 +344,7 @@ export const registerBotWebhook = createServerFn({ method: "POST" })
     const token = (row as any).token as string;
     const { webhookSecret } = await import("@/lib/telegram/config.server");
     const secret = await webhookSecret(token);
-    const webhookUrl = `${publicOrigin()}/api/public/telegram/webhook/${data.id}`;
+    const webhookUrl = `${await publicOrigin()}/api/public/telegram/webhook/${data.id}`;
     const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
       method: "POST",
       headers: { "content-type": "application/json" },

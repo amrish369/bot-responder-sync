@@ -34,8 +34,9 @@ export const INSTAGRAM_URL =
   "https://www.instagram.com/_www.compressdocument.in?igsh=MzNtdGVoeHp3YWhq";
 
 // Derived webhook secret (stable, matches Telegram setWebhook value)
-export async function webhookSecret(): Promise<string> {
-  const enc = new TextEncoder().encode(`telegram-webhook:${BOT_TOKEN()}`);
+export async function webhookSecret(token?: string): Promise<string> {
+  const t = token ?? BOT_TOKEN();
+  const enc = new TextEncoder().encode(`telegram-webhook:${t}`);
   const digest = await crypto.subtle.digest("SHA-256", enc);
   return base64url(new Uint8Array(digest));
 }

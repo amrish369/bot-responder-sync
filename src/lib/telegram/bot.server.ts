@@ -474,8 +474,8 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
 }
 
 // ── bot factory ──
-export function createBot(): Bot {
-  const bot = new Bot(BOT_TOKEN());
+export function createBot(tokenOverride?: string): Bot {
+  const bot = new Bot(tokenOverride ?? BOT_TOKEN());
 
   bot.catch((err) => {
     console.error("[telegram bot]", err.error instanceof Error ? err.error.message : String(err.error));

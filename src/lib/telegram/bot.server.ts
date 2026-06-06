@@ -67,6 +67,7 @@ import {
   stopMigration,
 } from "./storage.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { enqueueDelete } from "./delete-queue.server";
 
 // Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
 
@@ -170,12 +171,9 @@ function movieBtnLabel(m: MovieRow): string {
 async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
   const s = await getSettings();
   if (!s.autodelete_status) return;
-  const ms = Math.max(2, s.autodelete_timer) * 1000;
-  setTimeout(() => {
-    msgIds.forEach((id) => {
-      if (id) api.deleteMessage(chatId, id).catch(() => {});
-    });
-  }, ms);
+  // Persist to delete_queue — survives serverless restarts. Cron drains it.
+  await enqueueDelete(chatId, msgIds, s.autodelete_timer).catch((e) =>
+    console.error("[scheduleDelete enqueue]", (e as Error).message));
 }
 
 async function tempReply(ctx: Context, text: string, opts: any = {}) {

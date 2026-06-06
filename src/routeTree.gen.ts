@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
+import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated/admin.settings'
 import { Route as AuthenticatedAdminMoviesRouteImport } from './routes/_authenticated/admin.movies'
 import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authenticated/admin.broadcast'
 import { Route as AuthenticatedAdminBotsRouteImport } from './routes/_authenticated/admin.bots'
@@ -46,6 +47,12 @@ const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminSettingsRoute =
+  AuthenticatedAdminSettingsRouteImport.update({
+    id: '/admin/settings',
+    path: '/admin/settings',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminMoviesRoute =
   AuthenticatedAdminMoviesRouteImport.update({
     id: '/admin/movies',
@@ -94,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -107,6 +115,7 @@ export interface FileRoutesByTo {
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -122,6 +131,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/_authenticated/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/_authenticated/admin/settings': typeof AuthenticatedAdminSettingsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
+    | '/admin/settings'
     | '/admin/users'
     | '/admin/'
     | '/api/public/hooks/run-delete-queue'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
+    | '/admin/settings'
     | '/admin/users'
     | '/admin'
     | '/api/public/hooks/run-delete-queue'
@@ -164,6 +176,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/bots'
     | '/_authenticated/admin/broadcast'
     | '/_authenticated/admin/movies'
+    | '/_authenticated/admin/settings'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
     | '/api/public/hooks/run-delete-queue'
@@ -216,6 +229,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin/settings': {
+      id: '/_authenticated/admin/settings'
+      path: '/admin/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AuthenticatedAdminSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/admin/movies': {
@@ -274,6 +294,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminBotsRoute: typeof AuthenticatedAdminBotsRoute
   AuthenticatedAdminBroadcastRoute: typeof AuthenticatedAdminBroadcastRoute
   AuthenticatedAdminMoviesRoute: typeof AuthenticatedAdminMoviesRoute
+  AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
@@ -282,6 +303,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminBotsRoute: AuthenticatedAdminBotsRoute,
   AuthenticatedAdminBroadcastRoute: AuthenticatedAdminBroadcastRoute,
   AuthenticatedAdminMoviesRoute: AuthenticatedAdminMoviesRoute,
+  AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
   AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }
@@ -314,3 +336,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

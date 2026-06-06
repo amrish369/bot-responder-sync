@@ -231,13 +231,31 @@ export const addBotToken = createServerFn({ method: "POST" })
     const j = await res.json();
     if (!j.ok) throw new Error(`Token rejected by Telegram: ${j.description || "unknown"}`);
     const username = j.result?.username ?? null;
+    // verify the bot is admin in the configured storage channel (otherwise it
+    // cannot copyMessage and every download will fail with "chat not found").
+    let storageWarning: string | null = null;
+    try {
+      const { getSettings } = await import("@/lib/telegram/settings.server");
+      const s = await getSettings();
+      const meRes = await fetch(
+        `https://api.telegram.org/bot${data.token}/getChatMember?chat_id=${s.storage_channel_id}&user_id=${j.result.id}`
+      );
+      const meJ = await meRes.json();
+      if (!meJ.ok) {
+        storageWarning = `Bot @${username} ko storage channel (${s.storage_channel_id}) mein add karein. Telegram: ${meJ.description}`;
+      } else if (!["administrator", "creator"].includes(meJ.result?.status)) {
+        storageWarning = `Bot @${username} storage channel mein hai but ADMIN nahi — promote karein.`;
+      }
+    } catch (e) {
+      storageWarning = `Storage check fail: ${(e as Error).message}`;
+    }
     const { data: row, error } = await supabaseAdmin.from("bot_tokens").insert({
       name: data.name, token: data.token, notes: data.notes ?? null, bot_username: username,
     }).select("id").single();
     if (error) throw new Error(error.message);
     const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.add", { id: row.id, username });
-    return { ok: true, id: row.id, username };
+    await logActivity(email, "bot.add", { id: row.id, username, storageWarning });
+    return { ok: true, id: row.id, username, storageWarning };
   });
 
 export const toggleBotEnabled = createServerFn({ method: "POST" })

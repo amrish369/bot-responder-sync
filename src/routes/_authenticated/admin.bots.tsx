@@ -48,6 +48,9 @@ function BotsPage() {
     try {
       const r = await add({ data: { name, token, notes: notes || undefined } });
       toast.success(`Added @${r.username}`);
+      if ((r as any).storageWarning) {
+        toast.warning((r as any).storageWarning, { duration: 10000 });
+      }
       setOpen(false); setName(""); setToken(""); setNotes("");
       qc.invalidateQueries({ queryKey: ["admin", "bots"] });
     } catch (e: any) { toast.error(e.message); }

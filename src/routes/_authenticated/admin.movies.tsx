@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listMovies, updateMovieAdmin, deleteMovieAdmin } from "@/lib/admin/admin.functions";
+import { listMovies, updateMovieAdmin, deleteMovieAdmin, reArchiveMovie } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Trash2, Pencil, Search } from "lucide-react";
+import { Trash2, Pencil, Search, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/movies")({ component: MoviesPage });
 
@@ -19,6 +19,7 @@ function MoviesPage() {
   const list = useServerFn(listMovies);
   const upd = useServerFn(updateMovieAdmin);
   const del = useServerFn(deleteMovieAdmin);
+  const rearchive = useServerFn(reArchiveMovie);
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -105,6 +106,12 @@ function MoviesPage() {
                   </span>
                 </td>
                 <td className="p-2 text-right">
+                  {!m.storage_message_id && (
+                    <Button variant="ghost" size="icon" title="Re-archive into storage" onClick={async () => {
+                      try { await rearchive({ data: { id: m.id } }); toast.success(`#${m.id} archived`); qc.invalidateQueries({ queryKey: ["admin", "movies"] }); }
+                      catch (e) { toast.error((e as Error).message); }
+                    }}><RefreshCw className="h-4 w-4" /></Button>
+                  )}
                   <Button variant="ghost" size="icon" onClick={() => setEditing({ ...m })}><Pencil className="h-4 w-4" /></Button>
                 </td>
               </tr>

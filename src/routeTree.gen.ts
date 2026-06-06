@@ -14,11 +14,15 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
+import { Route as AuthenticatedAdminStorageRouteImport } from './routes/_authenticated/admin.storage'
+import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated/admin.settings'
+import { Route as AuthenticatedAdminRequestsRouteImport } from './routes/_authenticated/admin.requests'
 import { Route as AuthenticatedAdminMoviesRouteImport } from './routes/_authenticated/admin.movies'
 import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authenticated/admin.broadcast'
 import { Route as AuthenticatedAdminBotsRouteImport } from './routes/_authenticated/admin.bots'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicTelegramRegisterRouteImport } from './routes/api/public/telegram/register'
+import { Route as ApiPublicHooksRunDeleteQueueRouteImport } from './routes/api/public/hooks/run-delete-queue'
 import { Route as ApiPublicTelegramWebhookBotIdRouteImport } from './routes/api/public/telegram/webhook.$botId'
 
 const AuthRoute = AuthRouteImport.update({
@@ -45,6 +49,24 @@ const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminStorageRoute =
+  AuthenticatedAdminStorageRouteImport.update({
+    id: '/admin/storage',
+    path: '/admin/storage',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdminSettingsRoute =
+  AuthenticatedAdminSettingsRouteImport.update({
+    id: '/admin/settings',
+    path: '/admin/settings',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAdminRequestsRoute =
+  AuthenticatedAdminRequestsRouteImport.update({
+    id: '/admin/requests',
+    path: '/admin/requests',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminMoviesRoute =
   AuthenticatedAdminMoviesRouteImport.update({
     id: '/admin/movies',
@@ -74,6 +96,12 @@ const ApiPublicTelegramRegisterRoute =
     path: '/api/public/telegram/register',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksRunDeleteQueueRoute =
+  ApiPublicHooksRunDeleteQueueRouteImport.update({
+    id: '/api/public/hooks/run-delete-queue',
+    path: '/api/public/hooks/run-delete-queue',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicTelegramWebhookBotIdRoute =
   ApiPublicTelegramWebhookBotIdRouteImport.update({
     id: '/$botId',
@@ -87,8 +115,12 @@ export interface FileRoutesByFullPath {
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/admin/requests': typeof AuthenticatedAdminRequestsRoute
+  '/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -99,8 +131,12 @@ export interface FileRoutesByTo {
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/admin/requests': typeof AuthenticatedAdminRequestsRoute
+  '/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
+  '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -113,8 +149,12 @@ export interface FileRoutesById {
   '/_authenticated/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/_authenticated/admin/movies': typeof AuthenticatedAdminMoviesRoute
+  '/_authenticated/admin/requests': typeof AuthenticatedAdminRequestsRoute
+  '/_authenticated/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/_authenticated/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -127,8 +167,12 @@ export interface FileRouteTypes {
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
+    | '/admin/requests'
+    | '/admin/settings'
+    | '/admin/storage'
     | '/admin/users'
     | '/admin/'
+    | '/api/public/hooks/run-delete-queue'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -139,8 +183,12 @@ export interface FileRouteTypes {
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
+    | '/admin/requests'
+    | '/admin/settings'
+    | '/admin/storage'
     | '/admin/users'
     | '/admin'
+    | '/api/public/hooks/run-delete-queue'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -152,8 +200,12 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/bots'
     | '/_authenticated/admin/broadcast'
     | '/_authenticated/admin/movies'
+    | '/_authenticated/admin/requests'
+    | '/_authenticated/admin/settings'
+    | '/_authenticated/admin/storage'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
+    | '/api/public/hooks/run-delete-queue'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -163,6 +215,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicHooksRunDeleteQueueRoute: typeof ApiPublicHooksRunDeleteQueueRoute
   ApiPublicTelegramRegisterRoute: typeof ApiPublicTelegramRegisterRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRouteWithChildren
 }
@@ -204,6 +257,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/storage': {
+      id: '/_authenticated/admin/storage'
+      path: '/admin/storage'
+      fullPath: '/admin/storage'
+      preLoaderRoute: typeof AuthenticatedAdminStorageRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin/settings': {
+      id: '/_authenticated/admin/settings'
+      path: '/admin/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AuthenticatedAdminSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin/requests': {
+      id: '/_authenticated/admin/requests'
+      path: '/admin/requests'
+      fullPath: '/admin/requests'
+      preLoaderRoute: typeof AuthenticatedAdminRequestsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/admin/movies': {
       id: '/_authenticated/admin/movies'
       path: '/admin/movies'
@@ -239,6 +313,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicTelegramRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/run-delete-queue': {
+      id: '/api/public/hooks/run-delete-queue'
+      path: '/api/public/hooks/run-delete-queue'
+      fullPath: '/api/public/hooks/run-delete-queue'
+      preLoaderRoute: typeof ApiPublicHooksRunDeleteQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram/webhook/$botId': {
       id: '/api/public/telegram/webhook/$botId'
       path: '/$botId'
@@ -253,6 +334,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminBotsRoute: typeof AuthenticatedAdminBotsRoute
   AuthenticatedAdminBroadcastRoute: typeof AuthenticatedAdminBroadcastRoute
   AuthenticatedAdminMoviesRoute: typeof AuthenticatedAdminMoviesRoute
+  AuthenticatedAdminRequestsRoute: typeof AuthenticatedAdminRequestsRoute
+  AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
+  AuthenticatedAdminStorageRoute: typeof AuthenticatedAdminStorageRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
@@ -261,6 +345,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminBotsRoute: AuthenticatedAdminBotsRoute,
   AuthenticatedAdminBroadcastRoute: AuthenticatedAdminBroadcastRoute,
   AuthenticatedAdminMoviesRoute: AuthenticatedAdminMoviesRoute,
+  AuthenticatedAdminRequestsRoute: AuthenticatedAdminRequestsRoute,
+  AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
+  AuthenticatedAdminStorageRoute: AuthenticatedAdminStorageRoute,
   AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }
@@ -286,6 +373,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicHooksRunDeleteQueueRoute: ApiPublicHooksRunDeleteQueueRoute,
   ApiPublicTelegramRegisterRoute: ApiPublicTelegramRegisterRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRouteWithChildren,
 }

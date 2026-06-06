@@ -231,13 +231,31 @@ export const addBotToken = createServerFn({ method: "POST" })
     const j = await res.json();
     if (!j.ok) throw new Error(`Token rejected by Telegram: ${j.description || "unknown"}`);
     const username = j.result?.username ?? null;
+    // verify the bot is admin in the configured storage channel (otherwise it
+    // cannot copyMessage and every download will fail with "chat not found").
+    let storageWarning: string | null = null;
+    try {
+      const { getSettings } = await import("@/lib/telegram/settings.server");
+      const s = await getSettings();
+      const meRes = await fetch(
+        `https://api.telegram.org/bot${data.token}/getChatMember?chat_id=${s.storage_channel_id}&user_id=${j.result.id}`
+      );
+      const meJ = await meRes.json();
+      if (!meJ.ok) {
+        storageWarning = `Bot @${username} ko storage channel (${s.storage_channel_id}) mein add karein. Telegram: ${meJ.description}`;
+      } else if (!["administrator", "creator"].includes(meJ.result?.status)) {
+        storageWarning = `Bot @${username} storage channel mein hai but ADMIN nahi — promote karein.`;
+      }
+    } catch (e) {
+      storageWarning = `Storage check fail: ${(e as Error).message}`;
+    }
     const { data: row, error } = await supabaseAdmin.from("bot_tokens").insert({
       name: data.name, token: data.token, notes: data.notes ?? null, bot_username: username,
     }).select("id").single();
     if (error) throw new Error(error.message);
     const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.add", { id: row.id, username });
-    return { ok: true, id: row.id, username };
+    await logActivity(email, "bot.add", { id: row.id, username, storageWarning });
+    return { ok: true, id: row.id, username, storageWarning };
   });
 
 export const toggleBotEnabled = createServerFn({ method: "POST" })
@@ -441,4 +459,156 @@ export const checkIsAdmin = createServerFn({ method: "GET" })
     const { isEmailAllowed } = await import("./admin.server");
     const ok = await isEmailAllowed(email);
     return { ok, email };
+  });
+
+// ─── Storage health ─────────────────────────────────────────
+export const getStorageHealth = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { getSettings } = await import("@/lib/telegram/settings.server");
+    const s = await getSettings();
+    const { data: bots } = await supabaseAdmin
+      .from("bot_tokens").select("id,name,token,bot_username,enabled");
+    const checks: any[] = [];
+    for (const b of (bots ?? []) as any[]) {
+      try {
+        const me = await fetch(`https://api.telegram.org/bot${b.token}/getMe`).then(r => r.json());
+        if (!me.ok) { checks.push({ id: b.id, name: b.name, ok: false, reason: me.description }); continue; }
+        const cm = await fetch(
+          `https://api.telegram.org/bot${b.token}/getChatMember?chat_id=${s.storage_channel_id}&user_id=${me.result.id}`
+        ).then(r => r.json());
+        const isAdminInStorage = cm.ok && ["administrator","creator"].includes(cm.result?.status);
+        checks.push({
+          id: b.id, name: b.name, username: me.result.username,
+          ok: isAdminInStorage,
+          status: cm.ok ? cm.result?.status : null,
+          reason: cm.ok ? null : cm.description,
+        });
+      } catch (e) {
+        checks.push({ id: b.id, name: b.name, ok: false, reason: (e as Error).message });
+      }
+    }
+    const [{ count: total }, { count: archived }, { count: legacy }] = await Promise.all([
+      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }),
+      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).not("storage_message_id", "is", null),
+      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).is("storage_message_id", null),
+    ]);
+    const { count: queued } = await supabaseAdmin
+      .from("delete_queue").select("*", { count: "exact", head: true });
+    return {
+      storage_channel_id: s.storage_channel_id,
+      autodelete_status: s.autodelete_status,
+      autodelete_timer: s.autodelete_timer,
+      force_join: { main: s.main_group_link, backup: s.backup_group_link, primary: s.force_join_link },
+      movies: { total: total ?? 0, archived: archived ?? 0, legacy: legacy ?? 0 },
+      delete_queue_size: queued ?? 0,
+      bots: checks,
+    };
+  });
+
+// ─── Settings CRUD ─────────────────────────────────────────
+export const getBotSettings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { getSettings } = await import("@/lib/telegram/settings.server");
+    return await getSettings(true);
+  });
+
+export const updateBotSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: {
+    autodelete_status?: boolean;
+    autodelete_timer?: number;
+    force_join_link?: string | null;
+    main_group_link?: string | null;
+    backup_group_link?: string | null;
+    storage_channel_id?: number;
+  }) => d)
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { setSetting } = await import("@/lib/telegram/settings.server");
+    for (const [k, v] of Object.entries(data)) {
+      if (v === undefined) continue;
+      await setSetting(k as any, v as any);
+    }
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "settings.update", data);
+    return { ok: true };
+  });
+
+// ─── Re-archive a legacy movie using the active bot ────────
+export const reArchiveMovie = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: number }) => d)
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { getSettings } = await import("@/lib/telegram/settings.server");
+    const { data: m } = await supabaseAdmin.from("movies").select("*").eq("id", data.id).maybeSingle();
+    if (!m) throw new Error("Movie not found");
+    const movie = m as any;
+    const { data: bot } = await supabaseAdmin
+      .from("bot_tokens").select("token,bot_username").eq("is_active", true).maybeSingle();
+    const token = bot ? (bot as any).token : process.env.BOT_TOKEN;
+    if (!token) throw new Error("No active bot token configured");
+    const s = await getSettings();
+    const caption =
+      `🎬 ${movie.title}` + (movie.year ? ` (${movie.year})` : "") +
+      ` | ${movie.language || "N/A"} | ${movie.quality || "N/A"}\n🆔 db:${movie.id} (re-archive)`;
+    const endpoint = movie.file_kind === "document" ? "sendDocument" : "sendVideo";
+    const fieldName = movie.file_kind === "document" ? "document" : "video";
+    const body: any = { chat_id: s.storage_channel_id, caption };
+    body[fieldName] = movie.file_id;
+    const res = await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (!j.ok) throw new Error(`Telegram: ${j.description || "unknown"}`);
+    await supabaseAdmin.from("movies").update({
+      storage_chat_id: s.storage_channel_id,
+      storage_message_id: j.result.message_id,
+    }).eq("id", movie.id);
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "movie.rearchive", { id: movie.id, message_id: j.result.message_id });
+    return { ok: true, storage_chat_id: s.storage_channel_id, storage_message_id: j.result.message_id };
+  });
+
+// ─── Requests management ──────────────────────────────────
+export const listRequests = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data } = await supabaseAdmin
+      .from("requests").select("*").order("created_at", { ascending: false }).limit(200);
+    return { rows: data ?? [] };
+  });
+
+export const fulfillRequestAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { id: number }) => d)
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    await supabaseAdmin.from("requests").update({
+      status: "fulfilled", fulfilled_at: new Date().toISOString(),
+    }).eq("id", data.id);
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "request.fulfill", { id: data.id });
+    return { ok: true };
+  });
+
+// ─── Manually drain delete queue (for testing) ────────────
+export const drainDeleteQueue = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const origin = await publicOrigin();
+    const res = await fetch(`${origin}/api/public/hooks/run-delete-queue`, { method: "POST" });
+    return await res.json();
   });

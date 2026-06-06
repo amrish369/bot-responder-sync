@@ -67,6 +67,7 @@ import {
   stopMigration,
 } from "./storage.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { enqueueDelete } from "./delete-queue.server";
 
 // Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
 
@@ -170,12 +171,9 @@ function movieBtnLabel(m: MovieRow): string {
 async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
   const s = await getSettings();
   if (!s.autodelete_status) return;
-  const ms = Math.max(2, s.autodelete_timer) * 1000;
-  setTimeout(() => {
-    msgIds.forEach((id) => {
-      if (id) api.deleteMessage(chatId, id).catch(() => {});
-    });
-  }, ms);
+  // Persist to delete_queue — survives serverless restarts. Cron drains it.
+  await enqueueDelete(chatId, msgIds, s.autodelete_timer).catch((e) =>
+    console.error("[scheduleDelete enqueue]", (e as Error).message));
 }
 
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
@@ -274,26 +272,32 @@ function mergeKeyboards(kb1: InlineKeyboard, kb2: InlineKeyboard): InlineKeyboar
   return merged;
 }
 
-// ── force join (DB-backed) ──
-async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
+// ── force join (DB-backed) — STRICT: user must be member of EVERY configured chat ──
+async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();
-  if (!s.force_join_link) return true; // force-join disabled
-  const refs = [s.force_join_link, s.main_group_link, s.backup_group_link]
+  if (!s.force_join_link && !s.main_group_link && !s.backup_group_link) return [];
+  return [s.force_join_link, s.main_group_link, s.backup_group_link]
     .map((x) => normaliseChatRef(x || ""))
     .filter((x): x is string => !!x && x.startsWith("@"));
-  if (!refs.length) return true;
-  let errors = 0;
+}
+async function missingChannels(bot: Bot, userId: number): Promise<string[]> {
+  const refs = await forceJoinTargets();
+  if (!refs.length) return [];
+  const missing: string[] = [];
   for (const ch of refs) {
     try {
       const m = await bot.api.getChatMember(ch, userId);
-      if (["member", "administrator", "creator"].includes(m.status)) return true;
+      if (!["member", "administrator", "creator"].includes(m.status)) missing.push(ch);
     } catch (e) {
-      errors++;
+      // If bot can't check (not admin / private), warn but DON'T block silently —
+      // log so admin can fix in panel; treat as allowed.
       console.error("[force-join check]", ch, (e as Error).message);
     }
   }
-  // If every check errored (private channels, bot not admin), don't block.
-  return errors === refs.length;
+  return missing;
+}
+async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
+  return (await missingChannels(bot, userId)).length === 0;
 }
 async function sendForceJoinMsg(ctx: Context) {
   const s = await getSettings();
@@ -1752,8 +1756,23 @@ export function createBot(tokenOverride?: string): Bot {
         if (!isAdmin(uid) && chatId) scheduleDelete(ctx.api, chatId, sent.message_id);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} download ho rahi hai!` });
       } catch (e) {
-        console.error("send_", (e as Error).message);
-        return ctx.answerCallbackQuery({ text: "❌ Error sending file.", show_alert: true });
+        const err = e as any;
+        const desc = err?.description || err?.message || String(e);
+        console.error("[send_] movie_id=", m.id, "storage_chat=", m.storage_chat_id,
+          "storage_msg=", m.storage_message_id, "err=", desc);
+        // Send DM to first admin so they see the exact reason
+        try {
+          await ctx.api.sendMessage(
+            PRIMARY_ADMIN(),
+            `⚠️ Send failed\nmovie #${m.id} — ${m.title}\nto chat: ${chatId ?? uid}\nstorage: ${m.storage_chat_id}/${m.storage_message_id}\nerror: ${desc}`,
+          );
+        } catch {}
+        const hint = /chat not found|bot.*not.*member|bot is not a member|forbidden/i.test(desc)
+          ? "Bot ko STORAGE channel mein admin banayein."
+          : /wrong file identifier|FILE_REFERENCE/i.test(desc)
+          ? "Legacy file_id is bot ke saath kaam nahi karta — /admin/movies se Re-archive karein."
+          : "Try again in a moment.";
+        return ctx.answerCallbackQuery({ text: `❌ ${desc.slice(0, 80)} — ${hint}`, show_alert: true });
       }
     }
 

@@ -1,87 +1,71 @@
-## Goal
+## Plan — 5 fixes for the Telegram Movie Bot
 
-Run `bot.js` behavior on Lovable's backend (Cloudflare Workers SSR) — same commands, same replies, same keyboards — minus **daily 5 movies** and **daily debate**.
+I'll ship these in **2 batches** so each one is verifiable. Do not mix them — that's what caused half-working features before.
 
-## Why the original can't run as-is
+---
 
-- `bot.start()` long-polling → Workers can't keep a process alive. Switch to **Telegram webhooks**.
-- `better-sqlite3`, `child_process.exec` (git auto-sync) → no native modules / no subprocesses on Workers. Drop the git auto-sync; use Postgres for state.
-- `fs.writeFile` to `movies.json`, `banned.json`, `requests`, `users`, `dailyQueue.json`, `debates.json`, `chatLogs.json`, `genreCache.json` → no writable FS. Move to Lovable Cloud (Postgres).
+### Batch 1 — Critical bot fixes (ship first)
 
-User-facing messages, keyboards, button labels, emoji, and reply formats stay identical.
+**Fix 1: Auto-delete (3 min) — both DMs and groups**
+Right now there's no scheduler. I'll add:
+- `delete_queue` table: `chat_id, message_id, delete_at`
+- After every movie send (DM + group), insert all sent message IDs (movie + caption + warning) with `delete_at = now() + interval '3 minutes'`
+- New public route `/api/public/hooks/run-delete-queue` — picks rows where `delete_at <= now()`, calls `deleteMessage` per bot, removes row on success or on "message to delete not found"
+- `pg_cron` job every 1 minute hits that route
+- Admin UI toggle + minutes input in `/admin/settings` (new page)
 
-## Setup
+**Fix 2: Force-join cross-check (bot + main channel + backup group)**
+Currently force-join only checks one channel. I'll:
+- Read `FORCE_JOIN_CHANNELS` array from `bot_settings` (main channel id, backup group id — both editable in admin panel)
+- Before serving any movie, loop `getChatMember(chat, user_id)` over each; if any returns `left/kicked` → reply with join buttons for the missing one(s) + "✅ I've Joined" callback
+- "I've Joined" callback re-runs the check and resumes the original request (store pending request in `pending_uploads` keyed by user_id + payload)
 
-1. Enable **Lovable Cloud** (Postgres + secrets).
-2. Add secrets: `BOT_TOKEN`, `TMDB_API_KEY`, `ADMIN_ID` (comma-separated allowed), `CHANNEL` (default `@cineradarai`), `BOT_USERNAME` (default `cineradarai_bot`).
-3. Add `grammy` + `fuse.js` to dependencies (both Workers-compatible).
-4. Create webhook route: `src/routes/api/public/telegram/webhook.ts`. Verify `X-Telegram-Bot-Api-Secret-Token` (derive from `BOT_TOKEN` hash so it's stable, same pattern as the Telegram connector docs).
-5. After deploy, register webhook with Telegram via `setWebhook` pointing to `https://project--<id>-dev.lovable.app/api/public/telegram/webhook`.
+**Fix 3: "Error sending file" when sending from non-active bots**
+Telegram `file_id`s are **bot-specific** — a file_id obtained by Bot A cannot be used by Bot B. That's why webpage-added bots fail.
+Fix:
+- When a movie is archived to STORAGE_CHANNEL, save `storage_chat_id + storage_message_id` (already done for new uploads)
+- All bots send via `copyMessage(from_chat_id=storage_chat_id, message_id=storage_message_id)` — works for any bot that's admin in the storage channel
+- For legacy rows still missing `storage_message_id`, fall back to old `file_id` only if the **same bot that uploaded it** is sending; otherwise show "this file needs re-archiving" and queue it
+- Add per-row "Re-archive" button in admin/movies (uses active bot to fetch + repost into storage)
+- Surface exact Telegram error in logs + admin UI
 
-## Database (Lovable Cloud)
+**Fix 4: "File not in our DB" leaking user-uploaded files**
+Right now group-uploaded files are being returned to other searchers without being archived. I'll:
+- Stop indexing uploads that aren't in STORAGE_CHANNEL — only `movies` rows with non-null `storage_message_id` are searchable
+- Anything pending goes to `pending_uploads` and is archived first, then indexed
 
-Mirror the JSON files as tables, all with RLS enabled + service-role-only policies (only the webhook touches them):
+---
 
-- `movies` — id, title, file_id, language, quality, year, type, added_by, created_at
-- `requests` — id, user_id, username, title, status, created_at, fulfilled_at
-- `users` — telegram_id (pk), username, first_name, joined_at, last_seen, message_count
-- `banned` — telegram_id (pk), reason, banned_at
-- `chat_logs` — id, user_id, role, text, created_at
-- `convos` — admin_id, target_user_id, started_at (active DM bridges)
-- `pending_uploads` — admin_id, payload jsonb (multi-step upload flow state)
-- `payload_store` — key, data jsonb, expires_at (replaces the in-memory `requestPayloadStore`)
+### Batch 2 — Finish admin panel
 
-In-memory caches that are fine to keep per-request (rebuilt each invocation): `MOOD_MAP`, `EMOJI_TO_MOOD`, Fuse index (built on demand from `movies` table).
+**Fix 5: Remaining admin pages**
+- `/admin/settings` — STORAGE_CHANNEL_ID, backup channel, force-join list, auto-delete minutes, maintenance mode (all in `bot_settings`)
+- `/admin/storage` — health check (bot is admin? channel reachable? count of archived vs legacy movies), "migrate legacy" button
+- `/admin/requests` — list pending movie requests, mark fulfilled
+- `/admin/logs` — error logs feed
+- Remove placeholder buttons; every action wired to a real server fn
 
-## Handlers to port (verbatim replies)
+---
 
-Commands: `/start`, `/help`, `/new`, `/upcoming`, `/myrequests`, `/random`, `/debate` (on-demand debate command stays — only the daily auto-debate is removed), `/edit`, `/stats`, `/broadcast`, `/delete`, `/ban`, `/unban`, `/history`, `/delhistory`, `/convo`, `/endconvo`, `/pending`, `/search`, `/dm`, `/queue_add`, `/queue_view`, `/queue_clear`, `/cache_genres`.
+### Technical details
 
-Events: `chat_join_request`, `message:new_chat_members`, `my_chat_member`, generic `message` (mood detection, fuzzy movie search, TMDB lookup, force-join check, auto-delete after 3 min, request flow), `callback_query:data` (all inline-button callbacks).
+**DB migrations needed (Batch 1):**
+- `delete_queue(id, bot_id, chat_id, message_id, delete_at, created_at)` + index on `delete_at`
+- `pending_uploads` — already exists, will reuse
+- `bot_settings` rows: `auto_delete_minutes`, `force_join_channels` (jsonb array), `storage_channel_id`, `backup_storage_channel_id`
+- pg_cron job → `run-delete-queue`
 
-## Explicitly removed
+**Code touch points:**
+- `src/lib/telegram/storage.server.ts` — `copyMessage` for all sends, fallback logic
+- `src/lib/telegram/bot.server.ts` — force-join middleware, auto-delete queue inserts
+- `src/routes/api/public/hooks/run-delete-queue.ts` — new
+- `src/lib/admin/admin.functions.ts` — settings CRUD, re-archive, requests
+- `src/routes/_authenticated/admin.settings.tsx`, `admin.storage.tsx`, `admin.requests.tsx` — new pages
 
-- Daily auto-send of 5 movies (`dailyQueue.json` cron / scheduler logic).
-- Daily auto-debate (`debates.json` / `lastDaily.txt` / `lastDailySent.json` scheduled posting).
-- `child_process` git auto-sync.
+---
 
-The `/debate` command and the request/queue admin commands stay so admins can still manage things manually.
+### Confirm before I start
 
-## File layout
+Reply **"go batch 1"** and I'll ship fixes 1–4 in one turn, then verify before Batch 2. Or reply **"go all"** if you accept it may take 2 turns total.
 
-```
-src/
-├── routes/api/public/telegram/webhook.ts   # POST handler, verifies secret, hands update to bot
-├── lib/telegram/
-│   ├── bot.server.ts                        # grammy Bot instance + handler registration
-│   ├── db.server.ts                         # Postgres helpers (movies, users, requests, etc.)
-│   ├── tmdb.server.ts                       # TMDB API helpers
-│   ├── mood.ts                              # MOOD_MAP + detectMood (pure)
-│   ├── force-join.server.ts                 # channel-join enforcement
-│   ├── handlers/
-│   │   ├── commands.server.ts               # /start, /help, /new, /random, /search, ...
-│   │   ├── admin.server.ts                  # /stats, /broadcast, /ban, /unban, /delete, /edit, /dm, /history, /delhistory, /convo, /endconvo, /pending, /queue_*, /cache_genres
-│   │   ├── messages.server.ts               # generic on('message') logic
-│   │   └── callbacks.server.ts              # on('callback_query:data')
-│   └── auto-delete.server.ts                # schedules deletion via setTimeout per request (Worker-lifetime; acceptable since webhook invocations are short-lived — uses `ctx.waitUntil` equivalent)
-```
-
-Note on auto-delete: original uses 3-min `setTimeout`. Workers terminate after the response, so we'll use `event.waitUntil(new Promise(r => setTimeout(..., 3*60_000)))` if available, else delete on the next user interaction. Documented behavior is preserved best-effort.
-
-## Validation
-
-- After deploy, call `getWebhookInfo` to confirm registration.
-- Send `/start` from Telegram; verify reply text matches original.
-- Send a movie name; verify fuzzy match + TMDB poster + auto-delete behavior.
-- Admin: `/stats` returns user/movie counts.
-
-## Open dependency on user
-
-I need from you (will request via the secrets tool after you confirm this plan):
-- `BOT_TOKEN`
-- `TMDB_API_KEY`
-- `ADMIN_ID` (comma-separated)
-- `CHANNEL` (e.g. `@cineradarai`) — optional, has default
-- `BOT_USERNAME` — optional, has default
-
-GitHub connection itself must be done by you from the editor: **Plus (+) menu → GitHub → Connect project**.
+If anything above is wrong (e.g. backup is a channel not a group, different auto-delete time, different force-join list), tell me now.

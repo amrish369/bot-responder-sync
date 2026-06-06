@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
+import { Route as AuthenticatedAdminStorageRouteImport } from './routes/_authenticated/admin.storage'
 import { Route as AuthenticatedAdminSettingsRouteImport } from './routes/_authenticated/admin.settings'
 import { Route as AuthenticatedAdminMoviesRouteImport } from './routes/_authenticated/admin.movies'
 import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authenticated/admin.broadcast'
@@ -47,6 +48,12 @@ const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminStorageRoute =
+  AuthenticatedAdminStorageRouteImport.update({
+    id: '/admin/storage',
+    path: '/admin/storage',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminSettingsRoute =
   AuthenticatedAdminSettingsRouteImport.update({
     id: '/admin/settings',
@@ -102,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -116,6 +124,7 @@ export interface FileRoutesByTo {
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -132,6 +141,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/_authenticated/admin/movies': typeof AuthenticatedAdminMoviesRoute
   '/_authenticated/admin/settings': typeof AuthenticatedAdminSettingsRoute
+  '/_authenticated/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/admin/broadcast'
     | '/admin/movies'
     | '/admin/settings'
+    | '/admin/storage'
     | '/admin/users'
     | '/admin/'
     | '/api/public/hooks/run-delete-queue'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/admin/broadcast'
     | '/admin/movies'
     | '/admin/settings'
+    | '/admin/storage'
     | '/admin/users'
     | '/admin'
     | '/api/public/hooks/run-delete-queue'
@@ -177,6 +189,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/broadcast'
     | '/_authenticated/admin/movies'
     | '/_authenticated/admin/settings'
+    | '/_authenticated/admin/storage'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
     | '/api/public/hooks/run-delete-queue'
@@ -229,6 +242,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/users'
       fullPath: '/admin/users'
       preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin/storage': {
+      id: '/_authenticated/admin/storage'
+      path: '/admin/storage'
+      fullPath: '/admin/storage'
+      preLoaderRoute: typeof AuthenticatedAdminStorageRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/admin/settings': {
@@ -295,6 +315,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminBroadcastRoute: typeof AuthenticatedAdminBroadcastRoute
   AuthenticatedAdminMoviesRoute: typeof AuthenticatedAdminMoviesRoute
   AuthenticatedAdminSettingsRoute: typeof AuthenticatedAdminSettingsRoute
+  AuthenticatedAdminStorageRoute: typeof AuthenticatedAdminStorageRoute
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
   AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
@@ -304,6 +325,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminBroadcastRoute: AuthenticatedAdminBroadcastRoute,
   AuthenticatedAdminMoviesRoute: AuthenticatedAdminMoviesRoute,
   AuthenticatedAdminSettingsRoute: AuthenticatedAdminSettingsRoute,
+  AuthenticatedAdminStorageRoute: AuthenticatedAdminStorageRoute,
   AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
   AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }

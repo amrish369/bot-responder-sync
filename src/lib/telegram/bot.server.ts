@@ -1756,8 +1756,23 @@ export function createBot(tokenOverride?: string): Bot {
         if (!isAdmin(uid) && chatId) scheduleDelete(ctx.api, chatId, sent.message_id);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} download ho rahi hai!` });
       } catch (e) {
-        console.error("send_", (e as Error).message);
-        return ctx.answerCallbackQuery({ text: "❌ Error sending file.", show_alert: true });
+        const err = e as any;
+        const desc = err?.description || err?.message || String(e);
+        console.error("[send_] movie_id=", m.id, "storage_chat=", m.storage_chat_id,
+          "storage_msg=", m.storage_message_id, "err=", desc);
+        // Send DM to first admin so they see the exact reason
+        try {
+          await ctx.api.sendMessage(
+            PRIMARY_ADMIN(),
+            `⚠️ Send failed\nmovie #${m.id} — ${m.title}\nto chat: ${chatId ?? uid}\nstorage: ${m.storage_chat_id}/${m.storage_message_id}\nerror: ${desc}`,
+          );
+        } catch {}
+        const hint = /chat not found|bot.*not.*member|bot is not a member|forbidden/i.test(desc)
+          ? "Bot ko STORAGE channel mein admin banayein."
+          : /wrong file identifier|FILE_REFERENCE/i.test(desc)
+          ? "Legacy file_id is bot ke saath kaam nahi karta — /admin/movies se Re-archive karein."
+          : "Try again in a moment.";
+        return ctx.answerCallbackQuery({ text: `❌ ${desc.slice(0, 80)} — ${hint}`, show_alert: true });
       }
     }
 

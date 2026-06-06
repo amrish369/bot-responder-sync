@@ -227,6 +227,39 @@ export type Database = {
         }
         Relationships: []
       }
+      delete_queue: {
+        Row: {
+          attempts: number
+          bot_id: number | null
+          chat_id: number
+          created_at: string
+          delete_at: string
+          id: number
+          last_error: string | null
+          message_id: number
+        }
+        Insert: {
+          attempts?: number
+          bot_id?: number | null
+          chat_id: number
+          created_at?: string
+          delete_at: string
+          id?: number
+          last_error?: string | null
+          message_id: number
+        }
+        Update: {
+          attempts?: number
+          bot_id?: number | null
+          chat_id?: number
+          created_at?: string
+          delete_at?: string
+          id?: number
+          last_error?: string | null
+          message_id?: number
+        }
+        Relationships: []
+      }
       movies: {
         Row: {
           added_by: number | null
@@ -290,6 +323,24 @@ export type Database = {
           data?: Json
           expires_at?: string
           key?: string
+        }
+        Relationships: []
+      }
+      pending_join_actions: {
+        Row: {
+          payload: Json
+          updated_at: string
+          user_id: number
+        }
+        Insert: {
+          payload: Json
+          updated_at?: string
+          user_id: number
+        }
+        Update: {
+          payload?: Json
+          updated_at?: string
+          user_id?: number
         }
         Relationships: []
       }

@@ -17,16 +17,32 @@ export interface MovieRow {
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {
-  const { data, error } = await supabaseAdmin
-    .from("movies")
-    .select("*")
-    .order("id", { ascending: true })
-    .limit(5000);
-  if (error) {
-    console.error("[DB] fetchAllMovies", error.message);
-    return [];
+  let allMovies: MovieRow[] = [];
+  let from = 0;
+  const size = 1000;
+
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from("movies")
+      .select("*")
+      .order("id", { ascending: true })
+      .range(from, from + size - 1);
+
+    if (error) {
+      console.error("[DB] fetchAllMovies", error.message);
+      break;
+    }
+
+    if (!data || data.length === 0) break;
+
+    allMovies = allMovies.concat(data as MovieRow[]);
+
+    if (data.length < size) break;
+
+    from += size;
   }
-  return (data as MovieRow[]) ?? [];
+
+  return allMovies;
 }
 
 export async function fetchMovieById(id: number): Promise<MovieRow | null> {

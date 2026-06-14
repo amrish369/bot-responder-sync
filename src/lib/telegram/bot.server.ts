@@ -69,8 +69,6 @@ import {
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { enqueueDelete } from "./delete-queue.server";
 
-// Auto-delete timer is read dynamically from settings (DB-backed, default 10s)
-
 // ─── helpers ────────────────────────────────────────────────
 function sanitize(s: string | undefined): string {
   if (typeof s !== "string") return "";
@@ -86,8 +84,6 @@ function fmtSize(bytes: number | null | undefined): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${Math.round(mb)} MB`;
 }
 
-// Auto-detect quality bucket from file size in bytes.
-// 1MB–800MB → 480p · 801MB–1.3GB → 720p · 1.31GB–2.5GB → 1080p · >2.5GB → 4K
 function qualityFromSize(bytes: number | null | undefined): string | null {
   if (!bytes || bytes <= 0) return null;
   const mb = bytes / (1024 * 1024);
@@ -103,8 +99,6 @@ function fileKindFromMessage(msg: any): "video" | "document" {
 }
 
 async function sendMovieFile(api: any, chatId: number | string, movie: MovieRow, opts: any) {
-  // Future-proof delivery: prefer copyMessage from the storage channel so the
-  // bot is not tied to a single file_id. Fall back to direct file_id send.
   if (movie.storage_chat_id && movie.storage_message_id) {
     try {
       return await api.copyMessage(
@@ -158,6 +152,7 @@ function parseCaption(raw: string): { name: string; year: number | null; languag
   const name = s.replace(/[._\-\[\]\(\)]+/g, " ").replace(/\s+/g, " ").trim();
   return { name, year, language, quality };
 }
+
 function movieBtnLabel(m: MovieRow): string {
   const parts: (string | number)[] = [m.title];
   if (m.year) parts.push(m.year);
@@ -171,22 +166,26 @@ function movieBtnLabel(m: MovieRow): string {
 async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
   const s = await getSettings();
   if (!s.autodelete_status) return;
-  // Persist to delete_queue — survives serverless restarts. Cron drains it.
   await enqueueDelete(chatId, msgIds, s.autodelete_timer).catch((e) =>
     console.error("[scheduleDelete enqueue]", (e as Error).message));
 }
 
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
-  const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.reply(text, opts).catch((e) => {
     console.error("[tempReply]", (e as Error).message);
     return null;
   });
-  if (!isA && msg && ctx.chat?.id) {
-    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
+  
+  const isA = isAdmin(ctx.from?.id);
+  
+  // 🔒 SECURITY GATE: Admin ka text SMS group/DM se delete NAHI hoga
+  if (msg && ctx.chat?.id && !isA) {
+    const userMsgId = ctx.message?.message_id || 0;
+    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, userMsgId);
   }
   return msg;
 }
+
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.replyWithPhoto(photo, opts).catch((e) => {
@@ -214,6 +213,7 @@ function searchMovies(list: MovieRow[], query: string, filters: any = {}): Movie
 function cleanName(str: string): string {
   return str.replace(/[^a-zA-Z0-9\s]/g, "").toLowerCase().trim();
 }
+
 function fuzzyMatchMultiple(list: MovieRow[], query: string, limit = 5): MovieRow[] {
   const fuse = new Fuse(list, {
     keys: [
@@ -264,15 +264,8 @@ function buildFilterKeyboard(query: string, results: MovieRow[]): InlineKeyboard
   }
   return kb;
 }
-function mergeKeyboards(kb1: InlineKeyboard, kb2: InlineKeyboard): InlineKeyboard {
-  const merged = new InlineKeyboard();
-  const rows1 = (kb1 as any).inline_keyboard || [];
-  const rows2 = (kb2 as any).inline_keyboard || [];
-  [...rows1, ...rows2].forEach((row: any[]) => { if (row.length) merged.row(...row); });
-  return merged;
-}
 
-// ── force join (DB-backed) — STRICT: user must be member of EVERY configured chat ──
+// ── force join (DB-backed) ──
 async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();
   if (!s.force_join_link && !s.main_group_link && !s.backup_group_link) return [];
@@ -280,6 +273,7 @@ async function forceJoinTargets(): Promise<string[]> {
     .map((x) => normaliseChatRef(x || ""))
     .filter((x): x is string => !!x && x.startsWith("@"));
 }
+
 async function missingChannels(bot: Bot, userId: number): Promise<string[]> {
   const refs = await forceJoinTargets();
   if (!refs.length) return [];
@@ -289,16 +283,16 @@ async function missingChannels(bot: Bot, userId: number): Promise<string[]> {
       const m = await bot.api.getChatMember(ch, userId);
       if (!["member", "administrator", "creator"].includes(m.status)) missing.push(ch);
     } catch (e) {
-      // If bot can't check (not admin / private), warn but DON'T block silently —
-      // log so admin can fix in panel; treat as allowed.
       console.error("[force-join check]", ch, (e as Error).message);
     }
   }
   return missing;
 }
+
 async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
   return (await missingChannels(bot, userId)).length === 0;
 }
+
 async function sendForceJoinMsg(ctx: Context) {
   const s = await getSettings();
   const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
@@ -316,12 +310,12 @@ async function sendForceJoinMsg(ctx: Context) {
   ).catch((e) => console.error("[sendForceJoinMsg]", (e as Error).message));
 }
 
-// ── Daily TMDB digest: 1 upcoming + 2 released, never-repeat, never auto-delete ──
+// ── Daily TMDB digest ──
 async function maybeSendDailyDigest(bot: Bot, userId: number) {
   try {
     const key = `daily_sent_user_${userId}`;
     const { data: row } = await supabaseAdmin
-      .from("bot_settings").select("value").eq("key", key).maybeSingle();
+      .from("b_settings" as any).select("value").eq("key", key).maybeSingle();
     const todayUTC = new Date().toISOString().slice(0, 10);
     if (row && (row as any).value === todayUTC) return;
 
@@ -331,7 +325,6 @@ async function maybeSendDailyDigest(bot: Bot, userId: number) {
     const freshReleased = released.filter((m) => !sent.has(m._tmdbId)).slice(0, 2);
     const freshUpcoming = upcoming.filter((m) => !sent.has(m._tmdbId)).slice(0, 1);
     if (!freshReleased.length && !freshUpcoming.length) {
-      // Nothing new — still mark sent to avoid hammering TMDB on every msg
       await supabaseAdmin.from("bot_settings").upsert({
         key, value: todayUTC as any, updated_at: new Date().toISOString(),
       }, { onConflict: "key" });
@@ -371,11 +364,8 @@ async function maybeSendDailyDigest(bot: Bot, userId: number) {
   }
 }
 
-// ─── FIX 2: finishUpload — extracted and hardened ────────────────────────────
-// Now accepts an explicit adminId so it works correctly from both
-// message-handler and callback-handler contexts.
+// ─── finishUpload ───
 async function finishUpload(ctx: Context, pend: any, adminId: number) {
-  // Validate required fields before attempting DB insert
   if (!pend.name || !pend.name.trim()) {
     await clearPendingUpload(adminId);
     return ctx.reply("❌ Movie name missing. Upload kancelled karein aur dobara try karein.");
@@ -385,10 +375,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     return ctx.reply("❌ File ID missing. Pehle video/file bhejein.");
   }
 
-  // Safely parse year
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
-
-  // Auto-detect quality from size if missing
   const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
 
   const { movie: inserted, error: insErr } = await insertMovie({
@@ -413,8 +400,6 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     );
   }
 
-  // Mirror to storage channel so future deliveries use copyMessage
-  // (decoupled from this bot token's file_id mapping).
   const archived = await archiveMovieToStorage(ctx.api, inserted).catch(() => null);
   if (archived) {
     inserted.storage_chat_id = archived.chat_id;
@@ -433,7 +418,6 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     .text("❌ No", "dismiss_post");
   const reply = await ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
 
-  // ── Auto-deliver to users with matching pending requests (fuzzy) ──
   try {
     const pending = await listPendingRequests();
     const fuse = new Fuse(pending, {
@@ -485,7 +469,6 @@ export function createBot(tokenOverride?: string): Bot {
     console.error("[telegram bot]", err.error instanceof Error ? err.error.message : String(err.error));
   });
 
-  // chat_join_request: auto-approve
   bot.on("chat_join_request", async (ctx) => {
     try {
       await ctx.approveChatJoinRequest(ctx.from.id);
@@ -504,7 +487,6 @@ export function createBot(tokenOverride?: string): Bot {
     } catch (e) { console.error("[JOIN REQUEST]", (e as Error).message); }
   });
 
-  // ban check + force join middleware
   bot.use(async (ctx, next) => {
     const uid = ctx.from?.id;
     if (!uid) return next();
@@ -513,7 +495,6 @@ export function createBot(tokenOverride?: string): Bot {
       return;
     }
     if (isAdmin(uid)) return next();
-    // Daily TMDB digest (private chat only, non-blocking)
     if (ctx.chat?.type === "private") {
       maybeSendDailyDigest(bot, uid).catch((e) =>
         console.error("[daily digest hook]", (e as Error).message));
@@ -553,7 +534,6 @@ export function createBot(tokenOverride?: string): Bot {
   });
 
   // ─── COMMANDS ───
-
   bot.command("upload", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     await clearPendingUpload(ctx.from!.id);
@@ -893,7 +873,6 @@ export function createBot(tokenOverride?: string): Bot {
     await ctx.reply(`🛑 Conversation ended.`);
   });
 
-  // ── /fastupload on|off — persistent upload mode (DB-backed) ──
   bot.command("fastupload", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const arg = (ctx.message?.text ?? "").replace("/fastupload", "").trim().toLowerCase();
@@ -917,7 +896,6 @@ export function createBot(tokenOverride?: string): Bot {
     }
   });
 
-  // ── /autodelete on|off ──
   bot.command("autodelete", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const parts = (ctx.message?.text ?? "").trim().split(/\s+/);
@@ -947,7 +925,6 @@ export function createBot(tokenOverride?: string): Bot {
     }
   });
 
-  // ── /setforcejoin <@chan or url> ──
   bot.command("setforcejoin", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const raw = (ctx.message?.text ?? "").replace("/setforcejoin", "").trim();
@@ -1003,7 +980,6 @@ export function createBot(tokenOverride?: string): Bot {
     );
   });
 
-  // ── /storage — storage channel status + counts ──
   bot.command("storage", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const s = await getSettings(true);
@@ -1027,7 +1003,6 @@ export function createBot(tokenOverride?: string): Bot {
     );
   });
 
-  // ── /setstoragechannel <-100...id> ──
   bot.command("setstoragechannel", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const raw = (ctx.message?.text ?? "").replace("/setstoragechannel", "").trim();
@@ -1039,15 +1014,11 @@ export function createBot(tokenOverride?: string): Bot {
     return ctx.reply(`✅ Storage channel set to \`${id}\``, { parse_mode: "Markdown" });
   });
 
-  // ── /migrate_old_files — mirror legacy file_id movies into storage ──
   bot.command("migrate_old_files", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
-    // Parse optional batch size: /migrate_old_files 20
     const arg = (ctx.message?.text ?? "").replace("/migrate_old_files", "").trim();
     const batch = Math.min(Math.max(Number(arg) || 15, 1), 25);
-
     const stats = await getMigrationDbStats();
-    console.log(`[migrate command] total=${stats.total} archived=${stats.archived} legacy=${stats.legacy} batch=${batch}`);
 
     if (!stats.legacy) {
       return ctx.reply("✅ No legacy movies left — everything is already in storage channel.");
@@ -1109,7 +1080,6 @@ export function createBot(tokenOverride?: string): Bot {
     return ctx.reply("🛑 Migration stop requested. Will halt after current item.");
   });
 
-  // ── /export_users — JSON dump of all users (admin DM) ──
   bot.command("export_users", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const users = await listAllUsers();
@@ -1122,7 +1092,6 @@ export function createBot(tokenOverride?: string): Bot {
     }
   });
 
-  // ── /promotion — 2-step wizard ──
   bot.command("promotion", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const uid = ctx.from!.id;
@@ -1131,7 +1100,6 @@ export function createBot(tokenOverride?: string): Bot {
     return ctx.reply("📣 *Step 1 of 2:* Send Promotion Description", { parse_mode: "Markdown" });
   });
 
-  // ── /promote — broadcast promotional message to main + backup channel ──
   bot.command("promote", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const text = (ctx.message?.text ?? "").replace("/promote", "").trim();
@@ -1157,7 +1125,6 @@ export function createBot(tokenOverride?: string): Bot {
     return ctx.reply(`✅ Posted to ${ok}/${targets.length}` + (fail.length ? `\n❌ ${fail.join("\n")}` : ""));
   });
 
-  // ── /reply <reqId> <message> — custom reply to a request ──
   bot.command("reply", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const args = (ctx.message?.text ?? "").replace("/reply", "").trim();
@@ -1192,7 +1159,6 @@ export function createBot(tokenOverride?: string): Bot {
     const m = await fetchMovieById(id);
     if (!m) return ctx.reply("❌ Movie not found.");
 
-    // FIX 3: Clear any stale pending upload before starting edit session
     await clearPendingUpload(ctx.from!.id);
     await setPendingUpload(ctx.from!.id, { mode: "edit", id, step: "field" });
 
@@ -1203,13 +1169,12 @@ export function createBot(tokenOverride?: string): Bot {
     return ctx.reply(
       `✏️ *Edit Movie \`${m.id}\`*\n\n` +
       `🎬 ${escapeMarkdown(m.title)}\n` +
-      `📅 ${m.year ?? "—"}  |  🌐 ${m.language ?? "—"}  |  📺 ${m.quality ?? "—"}\n\n` +
+      `📅 ${m.year ?? "—"}  |  🌐 ${m.language ?? "—"}  |  📺 ${m.quality ?? "—"} \n\n` +
       `Kaunsa field edit karna hai? *Neeche button dabao:*`,
       { parse_mode: "Markdown", reply_markup: kb },
     );
   });
 
-  // ─── new_chat_members / my_chat_member ───
   bot.on("message:new_chat_members", async (ctx) => {
     for (const member of ctx.message.new_chat_members) {
       if (member.id === ctx.me.id) continue;
@@ -1255,11 +1220,9 @@ export function createBot(tokenOverride?: string): Bot {
     const isA = isAdmin(uid);
     await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
 
-    // admin convo relay: admin's plain text → user
     if (isA && msg.text && !msg.text.startsWith("/")) {
       const active = await getActiveConvo();
       if (active && active.admin_id === uid) {
-        // Make sure admin is not in a pending upload/edit state before relaying
         const pend = await getPendingUpload(uid);
         if (!pend) {
           try {
@@ -1272,7 +1235,6 @@ export function createBot(tokenOverride?: string): Bot {
       }
     }
 
-    // non-admin in active convo target → relay to admin
     if (!isA && msg.text) {
       const active = await getActiveConvo();
       if (active && active.target_user_id === uid) {
@@ -1291,7 +1253,6 @@ export function createBot(tokenOverride?: string): Bot {
       }
     }
 
-    // ─── FIX 2: Admin file upload handler ─────────────────────────────────────
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
       const fileKind = fileKindFromMessage(msg);
@@ -1303,13 +1264,10 @@ export function createBot(tokenOverride?: string): Bot {
 
       const sizeLabel = fmtSize(fileSize);
       const autoQual = qualityFromSize(fileSize);
-
-      // STRICT mode-controller: read persistent upload_mode from settings
       const s = await getSettings(true);
       const fastMode = s.upload_mode === "fast";
 
       if (fastMode) {
-        // FAST: parse caption fully, save one-shot. Never start wizard.
         const parsed = parseCaption(caption);
         if (!parsed.name) {
           return ctx.reply(
@@ -1331,7 +1289,6 @@ export function createBot(tokenOverride?: string): Bot {
         return finishUpload(ctx, pend, uid);
       }
 
-      // NORMAL: always start step-by-step wizard, never parse caption
       await clearPendingUpload(uid);
       await setPendingUpload(uid, {
         mode: "upload", step: "name", file_id: fileId, file_kind: fileKind, file_size: fileSize,
@@ -1346,13 +1303,11 @@ export function createBot(tokenOverride?: string): Bot {
       );
     }
 
-    // ─── FIX 2 & 3: Admin text — upload steps + edit value capture ────────────
     if (isA && msg.text) {
       const pend = await getPendingUpload(uid);
       if (pend) {
         const text = sanitize(msg.text);
 
-        // ── /promotion 2-step wizard ──
         if (pend.mode === "promotion") {
           if (pend.step === "desc") {
             pend.desc = msg.text.trim();
@@ -1385,7 +1340,6 @@ export function createBot(tokenOverride?: string): Bot {
           }
         }
 
-        // ── FIX 3: Edit mode — value capture ──
         if (pend.mode === "edit" && pend.step === "value" && pend.field) {
           const patch: any = {};
           if (pend.field === "year") {
@@ -1408,7 +1362,6 @@ export function createBot(tokenOverride?: string): Bot {
           );
         }
 
-        // FIX 3: Edit mode — "field" step, admin typed instead of clicking button
         if (pend.mode === "edit" && pend.step === "field") {
           return ctx.reply(
             `⚠️ *Button dabao!*\n\nKaunsa field edit karna hai, uska button select karein.`,
@@ -1416,7 +1369,6 @@ export function createBot(tokenOverride?: string): Bot {
           );
         }
 
-        // ── Upload steps ──
         if (pend.mode === "upload" || !pend.mode) {
           if (pend.step === "name") {
             if (!text.trim()) return ctx.reply("❌ Movie name empty nahi ho sakta. Dobara type karein.");
@@ -1426,7 +1378,6 @@ export function createBot(tokenOverride?: string): Bot {
             return ctx.reply("📅 *Step 2/4:* Release year likho (e.g. 2025):", { parse_mode: "Markdown" });
           }
           if (pend.step === "year") {
-            // FIX 2: Validate year before proceeding
             const y = Number(text.trim());
             if (!Number.isFinite(y) || y < 1900 || y > 2100) {
               return ctx.reply("❌ Valid year dein (e.g. 2024). Dobara type karein:");
@@ -1442,7 +1393,6 @@ export function createBot(tokenOverride?: string): Bot {
               .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
             return ctx.reply("🌐 *Step 3/3:* Language select karo (quality file size se auto-detect ho jayegi):", { parse_mode: "Markdown", reply_markup: kb });
           }
-          // FIX 2: If step is "language", remind admin to click button
           if (pend.step === "language") {
             const kb = new InlineKeyboard()
               .text("🇮🇳 Hindi", "ul_lang_Hindi").text("🇺🇸 English", "ul_lang_English").row()
@@ -1452,7 +1402,6 @@ export function createBot(tokenOverride?: string): Bot {
               .text("🎬 Punjabi", "ul_lang_Punjabi").text("🎬 Bengali", "ul_lang_Bengali");
             return ctx.reply("⚠️ *Upar se language button dabao:*", { parse_mode: "Markdown", reply_markup: kb });
           }
-          // FIX 2: If step is "quality", remind admin to click button
           if (pend.step === "quality") {
             const kb = new InlineKeyboard()
               .text("360p", "ul_qual_360p").text("480p", "ul_qual_480p").row()
@@ -1461,7 +1410,6 @@ export function createBot(tokenOverride?: string): Bot {
             return ctx.reply("⚠️ *Upar se quality button dabao:*", { parse_mode: "Markdown", reply_markup: kb });
           }
         }
-        // Catch-all: unknown step — clear and reset
         await clearPendingUpload(uid);
         return ctx.reply("⚠️ Upload state reset. Dobara video/file bhejein.");
       }
@@ -1473,7 +1421,6 @@ export function createBot(tokenOverride?: string): Bot {
     const rawQuery = sanitize(msg.text);
     if (!isA) await logChat(uid, "user", rawQuery);
 
-    // mood
     const mood = detectMood(rawQuery);
     if (mood) {
       await sendRandomMovie(ctx, mood);
@@ -1525,7 +1472,6 @@ export function createBot(tokenOverride?: string): Bot {
       return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption);
     }
 
-    // DB only
     let results = searchMovies(allMovies, parsedName);
     if (parsedYear) results = results.filter((m) => String(m.year) === parsedYear);
     if (parsedLang) results = results.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
@@ -1544,7 +1490,6 @@ export function createBot(tokenOverride?: string): Bot {
       return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });
     }
 
-    // fuzzy fallback
     const fuzzy = fuzzyMatchMultiple(allMovies, parsedName.toLowerCase(), 5);
     if (fuzzy.length) {
       const txt =
@@ -1620,7 +1565,6 @@ export function createBot(tokenOverride?: string): Bot {
       return sendRandomMovie(ctx, mood);
     }
 
-    // ── FIX 3: Edit mode callbacks ──
     if (data === "edit_cancel") {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       await clearPendingUpload(uid);
@@ -1646,7 +1590,6 @@ export function createBot(tokenOverride?: string): Bot {
           .text("🎬 Telugu", "edit_lang_Telugu").text("🎬 Tamil", "edit_lang_Tamil").row()
           .text("🎬 Malayalam", "edit_lang_Malayalam").text("🎬 Kannada", "edit_lang_Kannada").row()
           .text("❌ Cancel", "edit_cancel");
-        // FIX 3: answerCallbackQuery BEFORE ctx.reply
         await ctx.answerCallbackQuery({ text: "🌐 Language select karein" });
         return ctx.reply("🌐 *New language select karo:*", { parse_mode: "Markdown", reply_markup: kb });
       }
@@ -1660,12 +1603,10 @@ export function createBot(tokenOverride?: string): Bot {
           .text("720p", "edit_qual_720p").text("1080p", "edit_qual_1080p").row()
           .text("4K UHD", "edit_qual_4K").text("HDR", "edit_qual_HDR").row()
           .text("❌ Cancel", "edit_cancel");
-        // FIX 3: answerCallbackQuery BEFORE ctx.reply
         await ctx.answerCallbackQuery({ text: "📺 Quality select karein" });
         return ctx.reply("📺 *New quality select karo:*", { parse_mode: "Markdown", reply_markup: kb });
       }
 
-      // title / year — free text input
       pend.field = field;
       pend.step = "value";
       await setPendingUpload(uid, pend);
@@ -1676,7 +1617,6 @@ export function createBot(tokenOverride?: string): Bot {
       );
     }
 
-    // FIX 3: Edit language/quality button callbacks
     if (data.startsWith("edit_lang_") || data.startsWith("edit_qual_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
@@ -1691,7 +1631,6 @@ export function createBot(tokenOverride?: string): Bot {
       if (!movie) {
         return ctx.answerCallbackQuery({ text: `❌ Update failed: ${error || "Unknown error"}`, show_alert: true });
       }
-      // FIX 3: answerCallbackQuery BEFORE ctx.reply
       await ctx.answerCallbackQuery({ text: `✅ ${isLang ? "Language" : "Quality"} updated!` });
       return ctx.reply(
         `✅ *Updated Successfully!*\n\n🎬 ${escapeMarkdown(movie.title)}\n` +
@@ -1700,7 +1639,6 @@ export function createBot(tokenOverride?: string): Bot {
       );
     }
 
-    // ─── FIX 2: Upload step callbacks ────────────────────────────────────────
     if (data.startsWith("ul_lang_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const pend = await getPendingUpload(uid);
@@ -1713,7 +1651,6 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.answerCallbackQuery({ text: `✅ ${pend.language} · 📺 Auto: ${autoQ}` });
         return finishUpload(ctx, pend, uid);
       }
-      // Fallback: ask manually if size missing
       pend.step = "quality";
       await setPendingUpload(uid, pend);
       await ctx.answerCallbackQuery({ text: `✅ Language: ${pend.language}` });
@@ -1732,7 +1669,6 @@ export function createBot(tokenOverride?: string): Bot {
       const pend = await getPendingUpload(uid);
       if (!pend) return ctx.answerCallbackQuery({ text: "❌ No active upload. Pehle file bhejein.", show_alert: true });
       pend.quality = data.slice("ul_qual_".length);
-      // FIX 2: Save quality to DB before finishUpload (ensures data integrity)
       await setPendingUpload(uid, pend);
       await ctx.answerCallbackQuery({ text: `✅ Quality: ${pend.quality} — Saving...` });
       return finishUpload(ctx, pend, uid);
@@ -1742,37 +1678,36 @@ export function createBot(tokenOverride?: string): Bot {
       const id = Number(data.slice("send_".length));
       const m = await fetchMovieById(id);
       if (!m) return ctx.answerCallbackQuery({ text: "❌ Movie not found", show_alert: true });
+      
       await logChat(uid, "bot", `[Download] ${m.title}`);
       const caption =
         `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
         `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
-        `💡 *3x Fast Download chahiye? Website visit karein ek baar!*\n` +
-        `⏱️ *Auto-deletes in 5 min — forward & save karein.*`;
+        `⏱️ *Copyright Security: Yeh file 5 min mein auto-delete ho jayegi. Forward karke save karein.*`;
+      
       const kb = new InlineKeyboard()
-        .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row()
-        .url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
+        .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL);
+
       try {
         const sent = await sendMovieFile(ctx.api, chatId ?? uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
-        if (!isAdmin(uid) && chatId) scheduleDelete(ctx.api, chatId, sent.message_id);
-        return ctx.answerCallbackQuery({ text: `📥 ${m.title} download ho rahi hai!` });
+        
+        // 🛡️ CRITICAL COPYRIGHT FIX: File delivery par strictly scheduleDelete loop chalega
+        if (chatId && sent) {
+          const triggerMsgId = ctx.callbackQuery.message?.message_id || 0;
+          await scheduleDelete(ctx.api, chatId, sent.message_id, triggerMsgId);
+        }
+        return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
         const err = e as any;
         const desc = err?.description || err?.message || String(e);
-        console.error("[send_] movie_id=", m.id, "storage_chat=", m.storage_chat_id,
-          "storage_msg=", m.storage_message_id, "err=", desc);
-        // Send DM to first admin so they see the exact reason
+        console.error("[send_] movie_id=", m.id, "storage_chat=", m.storage_chat_id, "err=", desc);
         try {
           await ctx.api.sendMessage(
             PRIMARY_ADMIN(),
-            `⚠️ Send failed\nmovie #${m.id} — ${m.title}\nto chat: ${chatId ?? uid}\nstorage: ${m.storage_chat_id}/${m.storage_message_id}\nerror: ${desc}`,
+            `⚠️ Send failed\nmovie #${m.id} — ${m.title}\nto chat: ${chatId ?? uid}\nerror: ${desc}`,
           );
         } catch {}
-        const hint = /chat not found|bot.*not.*member|bot is not a member|forbidden/i.test(desc)
-          ? "Bot ko STORAGE channel mein admin banayein."
-          : /wrong file identifier|FILE_REFERENCE/i.test(desc)
-          ? "Legacy file_id is bot ke saath kaam nahi karta — /admin/movies se Re-archive karein."
-          : "Try again in a moment.";
-        return ctx.answerCallbackQuery({ text: `❌ ${desc.slice(0, 80)} — ${hint}`, show_alert: true });
+        return ctx.answerCallbackQuery({ text: "❌ Delivery failed", show_alert: true });
       }
     }
 
@@ -1846,13 +1781,12 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
-          `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
+          `👤 ${escapeMarkdown(await userDisplayName(uid)} (${uid})`,
           { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
       return;
     }
 
-    // ── Custom reply: admin clicks "Custom Reply" → start convo with that user ──
     if (data.startsWith("req_reply_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const targetId = Number(data.slice("req_reply_".length));
@@ -1875,7 +1809,6 @@ export function createBot(tokenOverride?: string): Bot {
       const id = Number(data.slice("rdi_".length));
       const req = await fulfillRequest(id);
       if (!req) return ctx.answerCallbackQuery({ text: "❌ Request not found", show_alert: true });
-      // FIX: Strip year from request title for movie search
       const titleForSearch = req.title.replace(/\s*\(\d{4}\)\s*$/, "").trim();
       const all = await fetchAllMovies();
       const matched = searchMovies(all, titleForSearch);

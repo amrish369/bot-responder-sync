@@ -1697,13 +1697,31 @@ export function createBot(tokenOverride?: string): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL);
 
       try {
-        const sent = await sendMovieFile(ctx.api, chatId ?? uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
-        
-        // 🛡️ CRITICAL COPYRIGHT FIX: File delivery par strictly scheduleDelete loop chalega
-        if (chatId && sent) {
-          const triggerMsgId = ctx.callbackQuery.message?.message_id || 0;
-          await scheduleDelete(ctx.api, chatId, sent.message_id, triggerMsgId);
+        const chatType = ctx.chat?.type;
+        const inGroup = chatType && chatType !== "private";
+
+        if (inGroup) {
+          // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
+          try {
+            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
+          } catch (dmErr) {
+            // User hasn't started the bot → deep-link them
+            const deepKb = new InlineKeyboard()
+              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
+            await ctx.api.sendMessage(chatId!,
+              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai.\n` +
+              `Pehle bot ko start karo, phir file automatically aa jayegi.`,
+              { parse_mode: "Markdown", reply_markup: deepKb }).catch(() => {});
+            await ctx.answerCallbackQuery({ text: "▶️ Start the bot in DM first", show_alert: true });
+          }
+          return;
         }
+
+        // Private chat — deliver directly
+        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+        if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
         const err = e as any;

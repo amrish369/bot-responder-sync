@@ -569,6 +569,26 @@ export function createBot(tokenOverride?: string): Bot {
     }
     const firstName = ctx.from?.first_name || "User";
     const startParam = ctx.match as string;
+
+    // Deep-link: user tapped "Start Bot to Receive File" in a group
+    if (startParam?.startsWith("get_")) {
+      const mid = Number(startParam.slice(4));
+      const m = Number.isFinite(mid) ? await fetchMovieById(mid) : null;
+      if (m) {
+        const caption =
+          `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
+          `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
+          `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
+        try {
+          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown" });
+          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        } catch (e) {
+          await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
+        }
+        return;
+      }
+    }
+
     const fromGroup = startParam?.includes("from_group") || startParam?.includes("ref");
     if (fromGroup) {
       return ctx.reply(

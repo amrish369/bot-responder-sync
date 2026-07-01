@@ -265,6 +265,14 @@ function buildFilterKeyboard(query: string, results: MovieRow[]): InlineKeyboard
   return kb;
 }
 
+function mergeKeyboards(a: InlineKeyboard, b: InlineKeyboard): InlineKeyboard {
+  const merged = new InlineKeyboard();
+  const rowsA = ((a as any).inline_keyboard ?? []) as any[][];
+  const rowsB = ((b as any).inline_keyboard ?? []) as any[][];
+  (merged as any).inline_keyboard = [...rowsA, ...rowsB];
+  return merged;
+}
+
 // ── force join (DB-backed) ──
 async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();
@@ -1781,7 +1789,7 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
-          `👤 ${escapeMarkdown(await userDisplayName(uid)} (${uid})`,
+          `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
           { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
       return;

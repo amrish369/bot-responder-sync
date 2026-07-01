@@ -30,6 +30,7 @@ import {
   fulfillRequest,
   getActiveConvo,
   getPayload,
+  consumePayload,
   getPendingUpload,
   getUser,
   getUserRequests,
@@ -1806,7 +1807,7 @@ export function createBot(tokenOverride?: string): Bot {
 
     if (data.startsWith("req_confirm_")) {
       const key = data.slice("req_confirm_".length);
-      const stored = await getPayload(key);
+      const stored = await consumePayload(key);
       if (!stored) return ctx.answerCallbackQuery({ text: "❌ Request expired", show_alert: true });
       const title = stored.title;
       const year = stored.year || "";

@@ -381,19 +381,51 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
   const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
 
+  // Auto TMDB verification
+  let verified: Awaited<ReturnType<typeof tmdbVerify>> = null;
+  try {
+    verified = await tmdbVerify(pend.name.trim(), yearNum);
+  } catch (e) {
+    console.error("[tmdbVerify]", (e as Error).message);
+  }
+
+  const finalTitle = verified?.title || pend.name.trim();
+  const finalYear = verified?.year ?? (yearNum && Number.isFinite(yearNum) ? yearNum : null);
+  const finalLang = pend.language ?? verified?.language ?? null;
+  const aliases = generateAliases(finalTitle, verified?.original_title || null);
+  const searchText = buildSearchText({
+    title: finalTitle,
+    original_title: verified?.original_title || null,
+    overview: verified?.overview || null,
+    genres: verified?.genres || null,
+    aliases,
+  } as any);
+
   const { movie: inserted, error: insErr } = await insertMovie({
-    title: pend.name.trim(),
+    title: finalTitle,
     file_id: pend.file_id,
     file_kind: pend.file_kind === "document" ? "document" : "video",
-    year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
-    language: pend.language ?? null,
+    year: finalYear,
+    language: finalLang,
     quality: finalQuality,
     type: null,
     added_by: adminId,
     file_size: pend.file_size ?? null,
     storage_chat_id: null,
     storage_message_id: null,
-  });
+    tmdb_id: verified?.tmdb_id ?? null,
+    imdb_id: verified?.imdb_id ?? null,
+    original_title: verified?.original_title ?? null,
+    poster_url: verified?.poster_url ?? null,
+    backdrop_url: verified?.backdrop_url ?? null,
+    overview: verified?.overview ?? null,
+    genres: verified?.genres ?? null,
+    runtime: verified?.runtime ?? null,
+    media_type: verified?.media_type ?? null,
+    aliases,
+    search_text: searchText,
+    tmdb_verified: !!verified,
+  } as any);
   await clearPendingUpload(adminId);
 
   if (!inserted) {

@@ -209,13 +209,11 @@ async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
 
 // ── DB search ──
 function searchMovies(list: MovieRow[], query: string, filters: any = {}): MovieRow[] {
-  const q = query.toLowerCase();
-  return list.filter((m) => {
-    if (!m.title.toLowerCase().includes(q)) return false;
-    if (filters.language && (m.language || "").toLowerCase() !== filters.language.toLowerCase()) return false;
-    if (filters.quality && (m.quality || "").toLowerCase() !== filters.quality.toLowerCase()) return false;
-    if (filters.year && String(m.year) !== String(filters.year)) return false;
-    return true;
+  return smartSearch(list, query, {
+    language: filters.language ?? null,
+    quality: filters.quality ?? null,
+    year: filters.year ?? null,
+    limit: 50,
   });
 }
 
@@ -224,19 +222,7 @@ function cleanName(str: string): string {
 }
 
 function fuzzyMatchMultiple(list: MovieRow[], query: string, limit = 5): MovieRow[] {
-  const fuse = new Fuse(list, {
-    keys: [
-      { name: "title", weight: 0.5 },
-      { name: "year", weight: 0.2 },
-      { name: "language", weight: 0.1 },
-      { name: "clean", weight: 0.2, getFn: (m: any) => cleanName((m as MovieRow).title) },
-    ],
-    threshold: 0.5,
-    minMatchCharLength: 3,
-    ignoreLocation: true,
-    includeScore: true,
-  });
-  return fuse.search(query).filter((r) => (r.score ?? 1) <= 0.6).slice(0, limit).map((r) => r.item);
+  return fuzzySuggest(list, query, limit);
 }
 
 const KNOWN_LANGUAGES = ["hindi","english","tamil","telugu","malayalam","kannada","dual audio","multi audio","punjabi","bengali","marathi"];

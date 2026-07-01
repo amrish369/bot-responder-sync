@@ -18,7 +18,15 @@ import {
   getIndianMoviesByType,
   tmdbSearchByTitle,
   tmdbSearchMultiple,
+  tmdbVerify,
 } from "./tmdb.server";
+import {
+  smartSearch,
+  fuzzySuggest,
+  buildSearchText,
+  generateAliases,
+  normalizeTitle,
+} from "./search.server";
 import {
   banUser,
   clearPendingUpload,

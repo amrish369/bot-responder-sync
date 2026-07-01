@@ -58,6 +58,116 @@ export async function tmdbSearchByTitle(title: string): Promise<TMDBDetail | nul
   };
 }
 
+// ── Verified metadata (movie or TV) ───────────────────────────
+export interface VerifiedMetadata {
+  media_type: "Movie" | "TV";
+  tmdb_id: number;
+  imdb_id: string | null;
+  title: string;
+  original_title: string;
+  year: number | null;
+  language: string;
+  overview: string;
+  genres: string;
+  poster_url: string | null;
+  backdrop_url: string | null;
+  runtime: number | null;
+  confidence: number; // 0..1
+  release_date: string | null;
+}
+
+function scoreCandidate(query: string, candTitle: string, candOrig: string): number {
+  const q = query.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const a = candTitle.toLowerCase();
+  const b = (candOrig || "").toLowerCase();
+  if (!q) return 0;
+  if (a === q || b === q) return 1;
+  if (a.startsWith(q) || b.startsWith(q)) return 0.9;
+  if (a.includes(q) || b.includes(q)) return 0.75;
+  // token overlap
+  const qt = new Set(q.split(" ").filter((w) => w.length > 1));
+  const at = new Set(a.split(/\s+/).filter((w) => w.length > 1));
+  let overlap = 0;
+  for (const w of qt) if (at.has(w)) overlap++;
+  return qt.size ? overlap / qt.size * 0.6 : 0;
+}
+
+/** Auto-verify: search movie + tv, pick the best confident match. */
+export async function tmdbVerify(
+  query: string,
+  yearHint?: number | null,
+): Promise<VerifiedMetadata | null> {
+  const cleaned = query.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+
+  const params: Record<string, any> = { query: cleaned, language: "en-US", include_adult: false };
+  if (yearHint) params.year = yearHint;
+
+  const [movieRes, tvRes] = await Promise.all([
+    tmdbGet<any>("/search/movie", params),
+    tmdbGet<any>("/search/tv", { query: cleaned, language: "en-US", include_adult: false }),
+  ]);
+
+  type Cand = { id: number; kind: "Movie" | "TV"; title: string; orig: string; year: string | null; score: number; popularity: number; raw: any };
+  const cands: Cand[] = [];
+  for (const m of movieRes?.results ?? []) {
+    const title = m.title || m.original_title || "";
+    const orig = m.original_title || "";
+    const yr = m.release_date ? m.release_date.slice(0, 4) : null;
+    let s = scoreCandidate(cleaned, title, orig);
+    if (yearHint && yr && Number(yr) === Number(yearHint)) s += 0.1;
+    cands.push({ id: m.id, kind: "Movie", title, orig, year: yr, score: s, popularity: m.popularity ?? 0, raw: m });
+  }
+  for (const m of tvRes?.results ?? []) {
+    const title = m.name || m.original_name || "";
+    const orig = m.original_name || "";
+    const yr = m.first_air_date ? m.first_air_date.slice(0, 4) : null;
+    let s = scoreCandidate(cleaned, title, orig);
+    if (yearHint && yr && Number(yr) === Number(yearHint)) s += 0.1;
+    cands.push({ id: m.id, kind: "TV", title, orig, year: yr, score: s, popularity: m.popularity ?? 0, raw: m });
+  }
+  if (!cands.length) return null;
+  cands.sort((a, b) => (b.score - a.score) || (b.popularity - a.popularity));
+  const top = cands[0];
+  if (top.score < 0.55) return null;
+
+  // Fetch full detail
+  const endpoint = top.kind === "Movie" ? `/movie/${top.id}` : `/tv/${top.id}`;
+  const append = top.kind === "Movie" ? "external_ids" : "external_ids";
+  const detail = await tmdbGet<any>(endpoint, { language: "en-US", append_to_response: append });
+  if (!detail) return null;
+
+  const language = LANG_MAP[detail.original_language] || detail.original_language?.toUpperCase() || "N/A";
+  const genres = detail.genres?.map((g: any) => g.name).join(", ") || "";
+  const poster = detail.poster_path ? `${TMDB_IMG}${detail.poster_path}` : null;
+  const backdrop = detail.backdrop_path ? `https://image.tmdb.org/t/p/w1280${detail.backdrop_path}` : null;
+  const isMovie = top.kind === "Movie";
+  const release = isMovie ? detail.release_date : detail.first_air_date;
+  const year = release ? Number(release.slice(0, 4)) : null;
+  const runtime = isMovie
+    ? (detail.runtime ?? null)
+    : (Array.isArray(detail.episode_run_time) && detail.episode_run_time.length
+        ? detail.episode_run_time[0]
+        : null);
+
+  return {
+    media_type: top.kind,
+    tmdb_id: top.id,
+    imdb_id: detail.external_ids?.imdb_id ?? detail.imdb_id ?? null,
+    title: isMovie ? (detail.title || top.title) : (detail.name || top.title),
+    original_title: isMovie ? (detail.original_title || "") : (detail.original_name || ""),
+    year: Number.isFinite(year as number) ? (year as number) : null,
+    language,
+    overview: detail.overview || "",
+    genres,
+    poster_url: poster,
+    backdrop_url: backdrop,
+    runtime: runtime ?? null,
+    confidence: Math.min(1, top.score),
+    release_date: release || null,
+  };
+}
+
 export interface TMDBMatch {
   title: string;
   year: string;

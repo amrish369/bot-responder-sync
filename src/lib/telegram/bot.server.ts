@@ -30,6 +30,7 @@ import {
   fulfillRequest,
   getActiveConvo,
   getPayload,
+  consumePayload,
   getPendingUpload,
   getUser,
   getUserRequests,
@@ -569,6 +570,26 @@ export function createBot(tokenOverride?: string): Bot {
     }
     const firstName = ctx.from?.first_name || "User";
     const startParam = ctx.match as string;
+
+    // Deep-link: user tapped "Start Bot to Receive File" in a group
+    if (startParam?.startsWith("get_")) {
+      const mid = Number(startParam.slice(4));
+      const m = Number.isFinite(mid) ? await fetchMovieById(mid) : null;
+      if (m) {
+        const caption =
+          `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
+          `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
+          `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
+        try {
+          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown" });
+          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        } catch (e) {
+          await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
+        }
+        return;
+      }
+    }
+
     const fromGroup = startParam?.includes("from_group") || startParam?.includes("ref");
     if (fromGroup) {
       return ctx.reply(
@@ -1697,13 +1718,31 @@ export function createBot(tokenOverride?: string): Bot {
         .url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL);
 
       try {
-        const sent = await sendMovieFile(ctx.api, chatId ?? uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
-        
-        // 🛡️ CRITICAL COPYRIGHT FIX: File delivery par strictly scheduleDelete loop chalega
-        if (chatId && sent) {
-          const triggerMsgId = ctx.callbackQuery.message?.message_id || 0;
-          await scheduleDelete(ctx.api, chatId, sent.message_id, triggerMsgId);
+        const chatType = ctx.chat?.type;
+        const inGroup = chatType && chatType !== "private";
+
+        if (inGroup) {
+          // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
+          try {
+            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
+          } catch (dmErr) {
+            // User hasn't started the bot → deep-link them
+            const deepKb = new InlineKeyboard()
+              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
+            await ctx.api.sendMessage(chatId!,
+              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai.\n` +
+              `Pehle bot ko start karo, phir file automatically aa jayegi.`,
+              { parse_mode: "Markdown", reply_markup: deepKb }).catch(() => {});
+            await ctx.answerCallbackQuery({ text: "▶️ Start the bot in DM first", show_alert: true });
+          }
+          return;
         }
+
+        // Private chat — deliver directly
+        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+        if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
         const err = e as any;
@@ -1768,7 +1807,7 @@ export function createBot(tokenOverride?: string): Bot {
 
     if (data.startsWith("req_confirm_")) {
       const key = data.slice("req_confirm_".length);
-      const stored = await getPayload(key);
+      const stored = await consumePayload(key);
       if (!stored) return ctx.answerCallbackQuery({ text: "❌ Request expired", show_alert: true });
       const title = stored.title;
       const year = stored.year || "";

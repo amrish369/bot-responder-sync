@@ -206,7 +206,8 @@ export async function listAllUsers(): Promise<UserRow[]> {
 // payload store (callback button data)
 export async function storePayload(data: unknown): Promise<string> {
   const key = Math.random().toString(36).slice(2, 10);
-  await supabaseAdmin.from("payload_store").insert({ key, data: data as any });
+  const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await supabaseAdmin.from("payload_store").insert({ key, data: data as any, expires_at });
   return key;
 }
 
@@ -214,6 +215,23 @@ export async function getPayload(key: string): Promise<any | null> {
   const { data } = await supabaseAdmin
     .from("payload_store").select("data").eq("key", key).maybeSingle();
   return data?.data ?? null;
+}
+
+export async function consumePayload(key: string): Promise<any | null> {
+  const val = await getPayload(key);
+  if (val !== null) {
+    await supabaseAdmin.from("payload_store").delete().eq("key", key);
+  }
+  return val;
+}
+
+export async function cleanupExpiredPayloads(): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from("payload_store")
+    .delete()
+    .lt("expires_at", new Date().toISOString())
+    .select("key");
+  return data?.length ?? 0;
 }
 
 // pending uploads (admin multi-step)

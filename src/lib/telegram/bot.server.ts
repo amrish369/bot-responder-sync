@@ -18,7 +18,15 @@ import {
   getIndianMoviesByType,
   tmdbSearchByTitle,
   tmdbSearchMultiple,
+  tmdbVerify,
 } from "./tmdb.server";
+import {
+  smartSearch,
+  fuzzySuggest,
+  buildSearchText,
+  generateAliases,
+  normalizeTitle,
+} from "./search.server";
 import {
   banUser,
   clearPendingUpload,
@@ -201,13 +209,11 @@ async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
 
 // ── DB search ──
 function searchMovies(list: MovieRow[], query: string, filters: any = {}): MovieRow[] {
-  const q = query.toLowerCase();
-  return list.filter((m) => {
-    if (!m.title.toLowerCase().includes(q)) return false;
-    if (filters.language && (m.language || "").toLowerCase() !== filters.language.toLowerCase()) return false;
-    if (filters.quality && (m.quality || "").toLowerCase() !== filters.quality.toLowerCase()) return false;
-    if (filters.year && String(m.year) !== String(filters.year)) return false;
-    return true;
+  return smartSearch(list, query, {
+    language: filters.language ?? null,
+    quality: filters.quality ?? null,
+    year: filters.year ?? null,
+    limit: 50,
   });
 }
 
@@ -216,19 +222,7 @@ function cleanName(str: string): string {
 }
 
 function fuzzyMatchMultiple(list: MovieRow[], query: string, limit = 5): MovieRow[] {
-  const fuse = new Fuse(list, {
-    keys: [
-      { name: "title", weight: 0.5 },
-      { name: "year", weight: 0.2 },
-      { name: "language", weight: 0.1 },
-      { name: "clean", weight: 0.2, getFn: (m: any) => cleanName((m as MovieRow).title) },
-    ],
-    threshold: 0.5,
-    minMatchCharLength: 3,
-    ignoreLocation: true,
-    includeScore: true,
-  });
-  return fuse.search(query).filter((r) => (r.score ?? 1) <= 0.6).slice(0, limit).map((r) => r.item);
+  return fuzzySuggest(list, query, limit);
 }
 
 const KNOWN_LANGUAGES = ["hindi","english","tamil","telugu","malayalam","kannada","dual audio","multi audio","punjabi","bengali","marathi"];
@@ -387,19 +381,51 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
   const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
 
+  // Auto TMDB verification
+  let verified: Awaited<ReturnType<typeof tmdbVerify>> = null;
+  try {
+    verified = await tmdbVerify(pend.name.trim(), yearNum);
+  } catch (e) {
+    console.error("[tmdbVerify]", (e as Error).message);
+  }
+
+  const finalTitle = verified?.title || pend.name.trim();
+  const finalYear = verified?.year ?? (yearNum && Number.isFinite(yearNum) ? yearNum : null);
+  const finalLang = pend.language ?? verified?.language ?? null;
+  const aliases = generateAliases(finalTitle, verified?.original_title || null);
+  const searchText = buildSearchText({
+    title: finalTitle,
+    original_title: verified?.original_title || null,
+    overview: verified?.overview || null,
+    genres: verified?.genres || null,
+    aliases,
+  } as any);
+
   const { movie: inserted, error: insErr } = await insertMovie({
-    title: pend.name.trim(),
+    title: finalTitle,
     file_id: pend.file_id,
     file_kind: pend.file_kind === "document" ? "document" : "video",
-    year: yearNum && Number.isFinite(yearNum) ? yearNum : null,
-    language: pend.language ?? null,
+    year: finalYear,
+    language: finalLang,
     quality: finalQuality,
     type: null,
     added_by: adminId,
     file_size: pend.file_size ?? null,
     storage_chat_id: null,
     storage_message_id: null,
-  });
+    tmdb_id: verified?.tmdb_id ?? null,
+    imdb_id: verified?.imdb_id ?? null,
+    original_title: verified?.original_title ?? null,
+    poster_url: verified?.poster_url ?? null,
+    backdrop_url: verified?.backdrop_url ?? null,
+    overview: verified?.overview ?? null,
+    genres: verified?.genres ?? null,
+    runtime: verified?.runtime ?? null,
+    media_type: verified?.media_type ?? null,
+    aliases,
+    search_text: searchText,
+    tmdb_verified: !!verified,
+  } as any);
   await clearPendingUpload(adminId);
 
   if (!inserted) {

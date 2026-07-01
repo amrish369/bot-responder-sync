@@ -14,6 +14,18 @@ export interface MovieRow {
   file_size: number | null;
   storage_chat_id: number | null;
   storage_message_id: number | null;
+  tmdb_id?: number | null;
+  imdb_id?: string | null;
+  original_title?: string | null;
+  poster_url?: string | null;
+  backdrop_url?: string | null;
+  overview?: string | null;
+  genres?: string | null;
+  runtime?: number | null;
+  media_type?: string | null;
+  aliases?: string[] | null;
+  search_text?: string | null;
+  tmdb_verified?: boolean | null;
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {

@@ -263,46 +263,82 @@ export type Database = {
       movies: {
         Row: {
           added_by: number | null
+          aliases: string[] | null
+          backdrop_url: string | null
           created_at: string
           file_id: string
           file_kind: string
           file_size: number | null
+          genres: string | null
           id: number
+          imdb_id: string | null
           language: string | null
+          media_type: string | null
+          original_title: string | null
+          overview: string | null
+          poster_url: string | null
           quality: string | null
+          runtime: number | null
+          search_text: string | null
           storage_chat_id: number | null
           storage_message_id: number | null
           title: string
+          tmdb_id: number | null
+          tmdb_verified: boolean | null
           type: string | null
           year: number | null
         }
         Insert: {
           added_by?: number | null
+          aliases?: string[] | null
+          backdrop_url?: string | null
           created_at?: string
           file_id: string
           file_kind?: string
           file_size?: number | null
+          genres?: string | null
           id?: number
+          imdb_id?: string | null
           language?: string | null
+          media_type?: string | null
+          original_title?: string | null
+          overview?: string | null
+          poster_url?: string | null
           quality?: string | null
+          runtime?: number | null
+          search_text?: string | null
           storage_chat_id?: number | null
           storage_message_id?: number | null
           title: string
+          tmdb_id?: number | null
+          tmdb_verified?: boolean | null
           type?: string | null
           year?: number | null
         }
         Update: {
           added_by?: number | null
+          aliases?: string[] | null
+          backdrop_url?: string | null
           created_at?: string
           file_id?: string
           file_kind?: string
           file_size?: number | null
+          genres?: string | null
           id?: number
+          imdb_id?: string | null
           language?: string | null
+          media_type?: string | null
+          original_title?: string | null
+          overview?: string | null
+          poster_url?: string | null
           quality?: string | null
+          runtime?: number | null
+          search_text?: string | null
           storage_chat_id?: number | null
           storage_message_id?: number | null
           title?: string
+          tmdb_id?: number | null
+          tmdb_verified?: boolean | null
           type?: string | null
           year?: number | null
         }

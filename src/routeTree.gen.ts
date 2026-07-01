@@ -22,6 +22,7 @@ import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authe
 import { Route as AuthenticatedAdminBotsRouteImport } from './routes/_authenticated/admin.bots'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram/webhook'
 import { Route as ApiPublicTelegramRegisterRouteImport } from './routes/api/public/telegram/register'
+import { Route as ApiPublicHooksTmdbBackfillRouteImport } from './routes/api/public/hooks/tmdb-backfill'
 import { Route as ApiPublicHooksRunDeleteQueueRouteImport } from './routes/api/public/hooks/run-delete-queue'
 import { Route as ApiPublicHooksCleanupPayloadsRouteImport } from './routes/api/public/hooks/cleanup-payloads'
 import { Route as ApiPublicTelegramWebhookBotIdRouteImport } from './routes/api/public/telegram/webhook.$botId'
@@ -97,6 +98,12 @@ const ApiPublicTelegramRegisterRoute =
     path: '/api/public/telegram/register',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksTmdbBackfillRoute =
+  ApiPublicHooksTmdbBackfillRouteImport.update({
+    id: '/api/public/hooks/tmdb-backfill',
+    path: '/api/public/hooks/tmdb-backfill',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksRunDeleteQueueRoute =
   ApiPublicHooksRunDeleteQueueRouteImport.update({
     id: '/api/public/hooks/run-delete-queue',
@@ -129,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
+  '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -146,6 +154,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
+  '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -165,6 +174,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
+  '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
   '/api/public/telegram/webhook': typeof ApiPublicTelegramWebhookRouteWithChildren
   '/api/public/telegram/webhook/$botId': typeof ApiPublicTelegramWebhookBotIdRoute
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/run-delete-queue'
+    | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/run-delete-queue'
+    | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -219,6 +231,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/run-delete-queue'
+    | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
     | '/api/public/telegram/webhook'
     | '/api/public/telegram/webhook/$botId'
@@ -230,6 +243,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiPublicHooksCleanupPayloadsRoute: typeof ApiPublicHooksCleanupPayloadsRoute
   ApiPublicHooksRunDeleteQueueRoute: typeof ApiPublicHooksRunDeleteQueueRoute
+  ApiPublicHooksTmdbBackfillRoute: typeof ApiPublicHooksTmdbBackfillRoute
   ApiPublicTelegramRegisterRoute: typeof ApiPublicTelegramRegisterRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRouteWithChildren
 }
@@ -327,6 +341,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicTelegramRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/tmdb-backfill': {
+      id: '/api/public/hooks/tmdb-backfill'
+      path: '/api/public/hooks/tmdb-backfill'
+      fullPath: '/api/public/hooks/tmdb-backfill'
+      preLoaderRoute: typeof ApiPublicHooksTmdbBackfillRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/run-delete-queue': {
       id: '/api/public/hooks/run-delete-queue'
       path: '/api/public/hooks/run-delete-queue'
@@ -396,6 +417,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiPublicHooksCleanupPayloadsRoute: ApiPublicHooksCleanupPayloadsRoute,
   ApiPublicHooksRunDeleteQueueRoute: ApiPublicHooksRunDeleteQueueRoute,
+  ApiPublicHooksTmdbBackfillRoute: ApiPublicHooksTmdbBackfillRoute,
   ApiPublicTelegramRegisterRoute: ApiPublicTelegramRegisterRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRouteWithChildren,
 }

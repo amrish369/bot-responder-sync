@@ -265,6 +265,15 @@ function buildFilterKeyboard(query: string, results: MovieRow[]): InlineKeyboard
   return kb;
 }
 
+function mergeKeyboards(a: InlineKeyboard, b: InlineKeyboard): InlineKeyboard {
+  const merged = new InlineKeyboard();
+  const rowsA = (a as any).inline_keyboard as any[][] | undefined;
+  const rowsB = (b as any).inline_keyboard as any[][] | undefined;
+  for (const row of rowsA ?? []) { for (const btn of row) (merged as any).add(btn); merged.row(); }
+  for (const row of rowsB ?? []) { for (const btn of row) (merged as any).add(btn); merged.row(); }
+  return merged;
+}
+
 // ── force join (DB-backed) ──
 async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();

@@ -1781,7 +1781,7 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
-          `👤 ${escapeMarkdown(await userDisplayName(uid)} (${uid})`,
+          `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
           { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
       return;

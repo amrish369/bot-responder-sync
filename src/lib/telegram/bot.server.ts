@@ -249,14 +249,10 @@ async function renderSearchResults(
   const key = editKey || (await storePayload({ kind: "search", query, ids }));
   const { text, keyboard, pages } = buildResultsMessage(query, ids, ranked, page);
   if (pages > 1) {
-    const nav = new InlineKeyboard();
-    if (page > 1) nav.text("⬅️ Previous", `pg|${key}|${page - 1}`);
-    nav.text(`📄 ${page}/${pages}`, "noop");
-    if (page < pages) nav.text("Next ➡️", `pg|${key}|${page + 1}`);
     keyboard.row();
-    for (const btn of (nav as any).inline_keyboard[0] || []) {
-      keyboard.add(btn);
-    }
+    if (page > 1) keyboard.text("⬅️ Previous", `pg|${key}|${page - 1}`);
+    keyboard.text(`📄 ${page}/${pages}`, "noop");
+    if (page < pages) keyboard.text("Next ➡️", `pg|${key}|${page + 1}`);
   }
   keyboard.row().url("⚡ 3x Fast Download", WEBSITE_URL);
   if (editKey) {

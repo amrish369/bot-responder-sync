@@ -26,6 +26,7 @@ import {
   buildSearchText,
   generateAliases,
   normalizeTitle,
+  dedupeAndRank,
 } from "./search.server";
 import {
   banUser,
@@ -170,6 +171,100 @@ function movieBtnLabel(m: MovieRow): string {
   parts.push("|");
   parts.push(m.quality || "N/A");
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
+}
+
+const RESULTS_PER_PAGE = 10;
+
+function buildResultsMessage(
+  query: string,
+  ids: number[],
+  movies: MovieRow[],
+  page: number,
+): { text: string; keyboard: InlineKeyboard; pages: number } {
+  const total = ids.length;
+  const pages = Math.max(1, Math.ceil(total / RESULTS_PER_PAGE));
+  const p = Math.min(Math.max(1, page), pages);
+  const start = (p - 1) * RESULTS_PER_PAGE;
+  const slice = movies.slice(start, start + RESULTS_PER_PAGE);
+  let text = `🎬 *${total} result(s) for "${escapeMarkdown(query)}"*`;
+  if (pages > 1) text += ` — page ${p}/${pages}`;
+  text += `\n\n`;
+  slice.forEach((m, i) => {
+    const n = start + i + 1;
+    const lang = m.language ? ` · ${escapeMarkdown(m.language)}` : "";
+    const qual = m.quality ? ` · ${escapeMarkdown(m.quality)}` : "";
+    text += `*${n}.* ${escapeMarkdown(m.title)} (${m.year || "?"})${lang}${qual}\n`;
+  });
+  text += `\n🔽 *Tap to download:*`;
+  const kb = new InlineKeyboard();
+  slice.forEach((m, i) => {
+    kb.text(`${start + i + 1}. ${movieBtnLabel(m).replace(/^⬇️\s*/, "")}`, `send_${m.id}`).row();
+  });
+  return { text, keyboard: kb, pages };
+}
+
+async function renderSearchResults(
+  ctx: Context,
+  query: string,
+  ranked: MovieRow[],
+  page = 1,
+  editKey?: string,
+): Promise<{ delivered?: boolean }> {
+  if (!ranked.length) return {};
+  // Single exact match → deliver directly.
+  if (!editKey && ranked.length === 1) {
+    const m = ranked[0];
+    if (normalizeTitle(m.title) === normalizeTitle(query)) {
+      const caption =
+        `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
+        `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
+        `⏱️ *Copyright Security: 5 min mein auto-delete.*`;
+      const kb = new InlineKeyboard().url("⚡ 3x Fast Download", WEBSITE_URL);
+      try {
+        const uid = ctx.from!.id;
+        const inGroup = ctx.chat?.type && ctx.chat.type !== "private";
+        if (inGroup) {
+          try {
+            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            await tempReply(ctx, `📩 *${escapeMarkdown(m.title)}* — DM mein bhej di.`, { parse_mode: "Markdown" });
+          } catch {
+            const deepKb = new InlineKeyboard()
+              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
+            await tempReply(ctx,
+              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai. Pehle bot start karo.`,
+              { parse_mode: "Markdown", reply_markup: deepKb });
+          }
+        } else {
+          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        }
+        return { delivered: true };
+      } catch (e) {
+        console.error("[renderSearchResults auto-deliver]", (e as Error).message);
+      }
+    }
+  }
+  const ids = ranked.map((m) => m.id);
+  const key = editKey || (await storePayload({ kind: "search", query, ids }));
+  const { text, keyboard, pages } = buildResultsMessage(query, ids, ranked, page);
+  if (pages > 1) {
+    keyboard.row();
+    if (page > 1) keyboard.text("⬅️ Previous", `pg|${key}|${page - 1}`);
+    keyboard.text(`📄 ${page}/${pages}`, "noop");
+    if (page < pages) keyboard.text("Next ➡️", `pg|${key}|${page + 1}`);
+  }
+  keyboard.row().url("⚡ 3x Fast Download", WEBSITE_URL);
+  if (editKey) {
+    try {
+      await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    }
+  } else {
+    await tempReply(ctx, text, { parse_mode: "Markdown", reply_markup: keyboard });
+  }
+  return {};
 }
 
 async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
@@ -1509,20 +1604,21 @@ export function createBot(tokenOverride?: string): Bot {
       let matches = searchMovies(allMovies, parsedName);
       if (parsedYear) matches = matches.filter((m) => String(m.year) === parsedYear);
       if (parsedLang) matches = matches.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+      matches = dedupeAndRank(matches, parsedName);
 
       if (matches.length > 0) {
-        caption += `\n✅ *Available — ${matches.length} version(s)*\n⚡ *Neeche se download karo!*`;
-        const kb = new InlineKeyboard();
-        matches.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
-        kb.url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row();
-        kb.url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
-        if (matches.length > 1) {
-          const fkb = buildFilterKeyboard(parsedName, matches);
-          if (tmdb.Poster) return tempPhoto(ctx, tmdb.Poster, { caption, parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
-          return tempReply(ctx, caption, { parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
+        // Single exact match → auto-deliver via renderSearchResults
+        if (matches.length === 1 && normalizeTitle(matches[0].title) === normalizeTitle(parsedName)) {
+          const r = await renderSearchResults(ctx, parsedName, matches, 1);
+          if (r.delivered) return;
         }
-        if (tmdb.Poster) return tempPhoto(ctx, tmdb.Poster, { caption, parse_mode: "Markdown", reply_markup: kb });
-        return tempReply(ctx, caption, { parse_mode: "Markdown", reply_markup: kb });
+        if (tmdb.Poster) {
+          await tempPhoto(ctx, tmdb.Poster, {
+            caption: caption + `\n✅ *Available — ${matches.length} version(s)*`,
+            parse_mode: "Markdown",
+          });
+        }
+        return renderSearchResults(ctx, parsedName, matches, 1);
       }
       return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption);
     }
@@ -1530,19 +1626,11 @@ export function createBot(tokenOverride?: string): Bot {
     let results = searchMovies(allMovies, parsedName);
     if (parsedYear) results = results.filter((m) => String(m.year) === parsedYear);
     if (parsedLang) results = results.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+    results = dedupeAndRank(results, parsedName);
     if (results.length > 0) {
-      let txt = `🎬 *${results.length} movie(s) mili "${escapeMarkdown(sanitize(msg.text))}" ke liye:*\n\n`;
-      results.forEach((m) => { txt += `• *${escapeMarkdown(m.title)}* ${m.year || ""}\n`; });
-      txt += `\n🔽 *Tap to download:*\n⚡ *3x Fast Download ke liye website visit karein!*`;
-      const kb = new InlineKeyboard();
-      results.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
-      kb.url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row();
-      kb.url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
-      if (results.length > 1) {
-        const fkb = buildFilterKeyboard(parsedName, results);
-        return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
-      }
-      return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });
+      const r = await renderSearchResults(ctx, parsedName, results, 1);
+      if (r.delivered) return;
+      return;
     }
 
     const fuzzy = fuzzyMatchMultiple(allMovies, parsedName.toLowerCase(), 5);
@@ -1782,6 +1870,21 @@ export function createBot(tokenOverride?: string): Bot {
         } catch {}
         return ctx.answerCallbackQuery({ text: "❌ Delivery failed", show_alert: true });
       }
+    }
+
+    if (data.startsWith("pg|")) {
+      const [, key, pageStr] = data.split("|");
+      const page = Math.max(1, Number(pageStr) || 1);
+      const payload = await getPayload(key);
+      if (!payload || payload.kind !== "search" || !Array.isArray(payload.ids)) {
+        return ctx.answerCallbackQuery({ text: "⌛ Search expired — please search again.", show_alert: true });
+      }
+      const all = await fetchAllMovies();
+      const byId = new Map(all.map((m) => [m.id, m]));
+      const ranked = (payload.ids as number[]).map((id) => byId.get(id)).filter(Boolean) as MovieRow[];
+      await ctx.answerCallbackQuery();
+      await renderSearchResults(ctx, payload.query || "", ranked, page, key);
+      return;
     }
 
     if (data.startsWith("f|")) {

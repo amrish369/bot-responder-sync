@@ -1604,20 +1604,21 @@ export function createBot(tokenOverride?: string): Bot {
       let matches = searchMovies(allMovies, parsedName);
       if (parsedYear) matches = matches.filter((m) => String(m.year) === parsedYear);
       if (parsedLang) matches = matches.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+      matches = dedupeAndRank(matches, parsedName);
 
       if (matches.length > 0) {
-        caption += `\n✅ *Available — ${matches.length} version(s)*\n⚡ *Neeche se download karo!*`;
-        const kb = new InlineKeyboard();
-        matches.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
-        kb.url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row();
-        kb.url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
-        if (matches.length > 1) {
-          const fkb = buildFilterKeyboard(parsedName, matches);
-          if (tmdb.Poster) return tempPhoto(ctx, tmdb.Poster, { caption, parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
-          return tempReply(ctx, caption, { parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
+        // Single exact match → auto-deliver via renderSearchResults
+        if (matches.length === 1 && normalizeTitle(matches[0].title) === normalizeTitle(parsedName)) {
+          const r = await renderSearchResults(ctx, parsedName, matches, 1);
+          if (r.delivered) return;
         }
-        if (tmdb.Poster) return tempPhoto(ctx, tmdb.Poster, { caption, parse_mode: "Markdown", reply_markup: kb });
-        return tempReply(ctx, caption, { parse_mode: "Markdown", reply_markup: kb });
+        if (tmdb.Poster) {
+          await tempPhoto(ctx, tmdb.Poster, {
+            caption: caption + `\n✅ *Available — ${matches.length} version(s)*`,
+            parse_mode: "Markdown",
+          });
+        }
+        return renderSearchResults(ctx, parsedName, matches, 1);
       }
       return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption);
     }
@@ -1625,19 +1626,11 @@ export function createBot(tokenOverride?: string): Bot {
     let results = searchMovies(allMovies, parsedName);
     if (parsedYear) results = results.filter((m) => String(m.year) === parsedYear);
     if (parsedLang) results = results.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+    results = dedupeAndRank(results, parsedName);
     if (results.length > 0) {
-      let txt = `🎬 *${results.length} movie(s) mili "${escapeMarkdown(sanitize(msg.text))}" ke liye:*\n\n`;
-      results.forEach((m) => { txt += `• *${escapeMarkdown(m.title)}* ${m.year || ""}\n`; });
-      txt += `\n🔽 *Tap to download:*\n⚡ *3x Fast Download ke liye website visit karein!*`;
-      const kb = new InlineKeyboard();
-      results.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
-      kb.url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL).row();
-      kb.url("📷 Instagram Follow Karein (Optional)", INSTAGRAM_URL);
-      if (results.length > 1) {
-        const fkb = buildFilterKeyboard(parsedName, results);
-        return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: mergeKeyboards(kb, fkb) });
-      }
-      return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });
+      const r = await renderSearchResults(ctx, parsedName, results, 1);
+      if (r.delivered) return;
+      return;
     }
 
     const fuzzy = fuzzyMatchMultiple(allMovies, parsedName.toLowerCase(), 5);

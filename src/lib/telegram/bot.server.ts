@@ -1872,10 +1872,6 @@ export function createBot(tokenOverride?: string): Bot {
       }
     }
 
-    if (data.startsWith("f|")) {
-      // handled below
-    }
-
     if (data.startsWith("pg|")) {
       const [, key, pageStr] = data.split("|");
       const page = Math.max(1, Number(pageStr) || 1);

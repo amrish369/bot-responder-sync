@@ -167,7 +167,7 @@ export function smartSearch(
   });
   for (const r of fuse.search(qNorm || q)) push(r.item);
 
-  return out.slice(0, limit);
+  return dedupeAndRank(out, rawQuery).slice(0, limit);
 }
 
 /** Fuzzy suggestions when smartSearch returns nothing. */

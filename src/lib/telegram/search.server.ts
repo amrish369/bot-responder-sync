@@ -200,12 +200,15 @@ export function dedupeAndRank(list: MovieRow[], rawQuery: string): MovieRow[] {
   const order = new Map<number, number>();
   list.forEach((m, i) => order.set(m.id, i));
   for (const m of list) {
-    const key =
-      (m as any).tmdb_id
-        ? `t:${(m as any).tmdb_id}`
-        : (m as any).imdb_id
-          ? `i:${(m as any).imdb_id}`
-          : `n:${normalizeTitle(m.title)}|${m.year ?? ""}|${(m.language || "").toLowerCase()}|${(m.quality || "").toLowerCase()}`;
+    // Keep every distinct version (quality / language / year / file).
+    // Only collapse truly identical duplicate rows (same file_id or exact same metadata combo).
+    const variant = `${m.year ?? ""}|${(m.language || "").toLowerCase()}|${(m.quality || "").toLowerCase()}|${m.file_id || ""}`;
+    const base = (m as any).tmdb_id
+      ? `t:${(m as any).tmdb_id}`
+      : (m as any).imdb_id
+        ? `i:${(m as any).imdb_id}`
+        : `n:${normalizeTitle(m.title)}`;
+    const key = `${base}|${variant}`;
     const prev = seen.get(key);
     if (!prev) { seen.set(key, m); continue; }
     // Prefer verified / archived / newer id

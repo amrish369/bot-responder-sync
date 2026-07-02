@@ -173,6 +173,104 @@ function movieBtnLabel(m: MovieRow): string {
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
 }
 
+const RESULTS_PER_PAGE = 10;
+
+function buildResultsMessage(
+  query: string,
+  ids: number[],
+  movies: MovieRow[],
+  page: number,
+): { text: string; keyboard: InlineKeyboard; pages: number } {
+  const total = ids.length;
+  const pages = Math.max(1, Math.ceil(total / RESULTS_PER_PAGE));
+  const p = Math.min(Math.max(1, page), pages);
+  const start = (p - 1) * RESULTS_PER_PAGE;
+  const slice = movies.slice(start, start + RESULTS_PER_PAGE);
+  let text = `🎬 *${total} result(s) for "${escapeMarkdown(query)}"*`;
+  if (pages > 1) text += ` — page ${p}/${pages}`;
+  text += `\n\n`;
+  slice.forEach((m, i) => {
+    const n = start + i + 1;
+    const lang = m.language ? ` · ${escapeMarkdown(m.language)}` : "";
+    const qual = m.quality ? ` · ${escapeMarkdown(m.quality)}` : "";
+    text += `*${n}.* ${escapeMarkdown(m.title)} (${m.year || "?"})${lang}${qual}\n`;
+  });
+  text += `\n🔽 *Tap to download:*`;
+  const kb = new InlineKeyboard();
+  slice.forEach((m, i) => {
+    kb.text(`${start + i + 1}. ${movieBtnLabel(m).replace(/^⬇️\s*/, "")}`, `send_${m.id}`).row();
+  });
+  return { text, keyboard: kb, pages };
+}
+
+async function renderSearchResults(
+  ctx: Context,
+  query: string,
+  ranked: MovieRow[],
+  page = 1,
+  editKey?: string,
+): Promise<{ delivered?: boolean }> {
+  if (!ranked.length) return {};
+  // Single exact match → deliver directly.
+  if (!editKey && ranked.length === 1) {
+    const m = ranked[0];
+    if (normalizeTitle(m.title) === normalizeTitle(query)) {
+      const caption =
+        `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
+        `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
+        `⏱️ *Copyright Security: 5 min mein auto-delete.*`;
+      const kb = new InlineKeyboard().url("⚡ 3x Fast Download", WEBSITE_URL);
+      try {
+        const uid = ctx.from!.id;
+        const inGroup = ctx.chat?.type && ctx.chat.type !== "private";
+        if (inGroup) {
+          try {
+            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            await tempReply(ctx, `📩 *${escapeMarkdown(m.title)}* — DM mein bhej di.`, { parse_mode: "Markdown" });
+          } catch {
+            const deepKb = new InlineKeyboard()
+              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
+            await tempReply(ctx,
+              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai. Pehle bot start karo.`,
+              { parse_mode: "Markdown", reply_markup: deepKb });
+          }
+        } else {
+          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        }
+        return { delivered: true };
+      } catch (e) {
+        console.error("[renderSearchResults auto-deliver]", (e as Error).message);
+      }
+    }
+  }
+  const ids = ranked.map((m) => m.id);
+  const key = editKey || (await storePayload({ kind: "search", query, ids }));
+  const { text, keyboard, pages } = buildResultsMessage(query, ids, ranked, page);
+  if (pages > 1) {
+    const nav = new InlineKeyboard();
+    if (page > 1) nav.text("⬅️ Previous", `pg|${key}|${page - 1}`);
+    nav.text(`📄 ${page}/${pages}`, "noop");
+    if (page < pages) nav.text("Next ➡️", `pg|${key}|${page + 1}`);
+    keyboard.row();
+    for (const btn of (nav as any).inline_keyboard[0] || []) {
+      keyboard.add(btn);
+    }
+  }
+  keyboard.row().url("⚡ 3x Fast Download", WEBSITE_URL);
+  if (editKey) {
+    try {
+      await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    }
+  } else {
+    await tempReply(ctx, text, { parse_mode: "Markdown", reply_markup: keyboard });
+  }
+  return {};
+}
+
 async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
   const s = await getSettings();
   if (!s.autodelete_status) return;

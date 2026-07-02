@@ -187,3 +187,51 @@ export function fuzzySuggest(list: MovieRow[], rawQuery: string, limit = 5): Mov
   });
   return fuse.search(qNorm).slice(0, limit).map((r) => r.item);
 }
+
+// ── Dedupe + rank ──────────────────────────────────────────────
+/**
+ * Deduplicate by tmdb_id → imdb_id → normalized(title)+year, and
+ * sort by: exact normalized title match, then year desc (newest first),
+ * then original list order (which reflects search relevance / popularity).
+ */
+export function dedupeAndRank(list: MovieRow[], rawQuery: string): MovieRow[] {
+  const qNorm = normalizeTitle(rawQuery);
+  const seen = new Map<string, MovieRow>();
+  const order = new Map<number, number>();
+  list.forEach((m, i) => order.set(m.id, i));
+  for (const m of list) {
+    const key =
+      (m as any).tmdb_id
+        ? `t:${(m as any).tmdb_id}`
+        : (m as any).imdb_id
+          ? `i:${(m as any).imdb_id}`
+          : `n:${normalizeTitle(m.title)}|${m.year ?? ""}|${(m.language || "").toLowerCase()}|${(m.quality || "").toLowerCase()}`;
+    const prev = seen.get(key);
+    if (!prev) { seen.set(key, m); continue; }
+    // Prefer verified / archived / newer id
+    const better =
+      (((m as any).tmdb_verified ? 1 : 0) - ((prev as any).tmdb_verified ? 1 : 0)) ||
+      ((m.storage_message_id ? 1 : 0) - (prev.storage_message_id ? 1 : 0)) ||
+      (m.id - prev.id);
+    if (better > 0) seen.set(key, m);
+  }
+  const arr = [...seen.values()];
+  arr.sort((a, b) => {
+    const ax = normalizeTitle(a.title) === qNorm ? 1 : 0;
+    const bx = normalizeTitle(b.title) === qNorm ? 1 : 0;
+    if (ax !== bx) return bx - ax;
+    const ay = a.year ?? 0;
+    const by = b.year ?? 0;
+    if (ay !== by) return by - ay;
+    return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
+  });
+  return arr;
+}
+
+/** Convenience: is the top result an exact (normalized) title match with no other exact matches? */
+export function isSingleExactMatch(list: MovieRow[], rawQuery: string): boolean {
+  const qNorm = normalizeTitle(rawQuery);
+  if (!qNorm || list.length === 0) return false;
+  const exact = list.filter((m) => normalizeTitle(m.title) === qNorm);
+  return exact.length === 1;
+}

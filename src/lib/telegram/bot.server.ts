@@ -1873,6 +1873,25 @@ export function createBot(tokenOverride?: string): Bot {
     }
 
     if (data.startsWith("f|")) {
+      // handled below
+    }
+
+    if (data.startsWith("pg|")) {
+      const [, key, pageStr] = data.split("|");
+      const page = Math.max(1, Number(pageStr) || 1);
+      const payload = await getPayload(key);
+      if (!payload || payload.kind !== "search" || !Array.isArray(payload.ids)) {
+        return ctx.answerCallbackQuery({ text: "⌛ Search expired — please search again.", show_alert: true });
+      }
+      const all = await fetchAllMovies();
+      const byId = new Map(all.map((m) => [m.id, m]));
+      const ranked = (payload.ids as number[]).map((id) => byId.get(id)).filter(Boolean) as MovieRow[];
+      await ctx.answerCallbackQuery();
+      await renderSearchResults(ctx, payload.query || "", ranked, page, key);
+      return;
+    }
+
+    if (data.startsWith("f|")) {
       const parts = data.split("|");
       if (parts.length < 4) return ctx.answerCallbackQuery();
       const [, q, type, val] = parts;

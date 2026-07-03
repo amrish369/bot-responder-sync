@@ -173,7 +173,7 @@ function movieBtnLabel(m: MovieRow): string {
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
 }
 
-const RESULTS_PER_PAGE = 10;
+const RESULTS_PER_PAGE = 5;
 
 function buildResultsMessage(
   query: string,
@@ -195,10 +195,15 @@ function buildResultsMessage(
     const qual = m.quality ? ` · ${escapeMarkdown(m.quality)}` : "";
     text += `*${n}.* ${escapeMarkdown(m.title)} (${m.year || "?"})${lang}${qual}\n`;
   });
-  text += `\n🔽 *Tap to download:*`;
+  text += `\n🔽 *Tap to get the movie — or request a different version:*`;
   const kb = new InlineKeyboard();
+  const reqKey = encodeURIComponent(query).slice(0, 50);
   slice.forEach((m, i) => {
-    kb.text(`${start + i + 1}. ${movieBtnLabel(m).replace(/^⬇️\s*/, "")}`, `send_${m.id}`).row();
+    const n = start + i + 1;
+    kb
+      .text(`${n}. ⬇️ Get Movie`, `send_${m.id}`)
+      .text(`📩 Request`, `req_pick_${reqKey}`)
+      .row();
   });
   return { text, keyboard: kb, pages };
 }
@@ -211,10 +216,12 @@ async function renderSearchResults(
   editKey?: string,
 ): Promise<{ delivered?: boolean }> {
   if (!ranked.length) return {};
-  // Single exact match → deliver directly.
-  if (!editKey && ranked.length === 1) {
+  // High-confidence auto-deliver: top match is an exact/normalized title match,
+  // OR there is only one distinct movie in the deduped result set.
+  if (!editKey) {
     const m = ranked[0];
-    if (normalizeTitle(m.title) === normalizeTitle(query)) {
+    const isExact = normalizeTitle(m.title) === normalizeTitle(query);
+    if (isExact || ranked.length === 1) {
       const caption =
         `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
         `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
@@ -1640,7 +1647,14 @@ export function createBot(tokenOverride?: string): Bot {
         fuzzy.map((m) => `• *${escapeMarkdown(m.title)}* (${m.year || "?"})`).join("\n") +
         `\n\n__Direct search nahi mila, shayad aap yahi dhundh rahe the?__`;
       const kb = new InlineKeyboard();
-      fuzzy.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
+      const reqKey = encodeURIComponent(parsedName).slice(0, 50);
+      fuzzy.forEach((m) =>
+        kb
+          .text(`⬇️ Get: ${m.title}`.slice(0, 40), `send_${m.id}`)
+          .text(`📩 Request`, `req_pick_${reqKey}`)
+          .row(),
+      );
+      kb.text(`📩 Request "${parsedName.slice(0, 25)}"`, `req_pick_${reqKey}`).row();
       kb.url("⚡ 3x Fast Download", WEBSITE_URL).row();
       kb.url("📷 Instagram (Optional)", INSTAGRAM_URL);
       return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });

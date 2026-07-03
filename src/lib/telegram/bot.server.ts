@@ -216,10 +216,12 @@ async function renderSearchResults(
   editKey?: string,
 ): Promise<{ delivered?: boolean }> {
   if (!ranked.length) return {};
-  // Single exact match → deliver directly.
-  if (!editKey && ranked.length === 1) {
+  // High-confidence auto-deliver: top match is an exact/normalized title match,
+  // OR there is only one distinct movie in the deduped result set.
+  if (!editKey) {
     const m = ranked[0];
-    if (normalizeTitle(m.title) === normalizeTitle(query)) {
+    const isExact = normalizeTitle(m.title) === normalizeTitle(query);
+    if (isExact || ranked.length === 1) {
       const caption =
         `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
         `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +

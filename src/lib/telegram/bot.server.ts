@@ -1647,7 +1647,14 @@ export function createBot(tokenOverride?: string): Bot {
         fuzzy.map((m) => `• *${escapeMarkdown(m.title)}* (${m.year || "?"})`).join("\n") +
         `\n\n__Direct search nahi mila, shayad aap yahi dhundh rahe the?__`;
       const kb = new InlineKeyboard();
-      fuzzy.forEach((m) => kb.text(movieBtnLabel(m), `send_${m.id}`).row());
+      const reqKey = encodeURIComponent(parsedName).slice(0, 50);
+      fuzzy.forEach((m) =>
+        kb
+          .text(`⬇️ Get: ${m.title}`.slice(0, 40), `send_${m.id}`)
+          .text(`📩 Request`, `req_pick_${reqKey}`)
+          .row(),
+      );
+      kb.text(`📩 Request "${parsedName.slice(0, 25)}"`, `req_pick_${reqKey}`).row();
       kb.url("⚡ 3x Fast Download", WEBSITE_URL).row();
       kb.url("📷 Instagram (Optional)", INSTAGRAM_URL);
       return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });

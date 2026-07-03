@@ -216,42 +216,6 @@ async function renderSearchResults(
   editKey?: string,
 ): Promise<{ delivered?: boolean }> {
   if (!ranked.length) return {};
-  // High-confidence auto-deliver: top match is an exact/normalized title match,
-  // OR there is only one distinct movie in the deduped result set.
-  if (!editKey) {
-    const m = ranked[0];
-    const isExact = normalizeTitle(m.title) === normalizeTitle(query);
-    if (isExact || ranked.length === 1) {
-      const caption =
-        `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
-        `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
-        `⏱️ *Copyright Security: 5 min mein auto-delete.*`;
-      const kb = new InlineKeyboard().url("⚡ 3x Fast Download", WEBSITE_URL);
-      try {
-        const uid = ctx.from!.id;
-        const inGroup = ctx.chat?.type && ctx.chat.type !== "private";
-        if (inGroup) {
-          try {
-            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
-            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
-            await tempReply(ctx, `📩 *${escapeMarkdown(m.title)}* — DM mein bhej di.`, { parse_mode: "Markdown" });
-          } catch {
-            const deepKb = new InlineKeyboard()
-              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
-            await tempReply(ctx,
-              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai. Pehle bot start karo.`,
-              { parse_mode: "Markdown", reply_markup: deepKb });
-          }
-        } else {
-          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
-          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
-        }
-        return { delivered: true };
-      } catch (e) {
-        console.error("[renderSearchResults auto-deliver]", (e as Error).message);
-      }
-    }
-  }
   const ids = ranked.map((m) => m.id);
   const key = editKey || (await storePayload({ kind: "search", query, ids }));
   const { text, keyboard, pages } = buildResultsMessage(query, ids, ranked, page);
@@ -1611,14 +1575,8 @@ export function createBot(tokenOverride?: string): Bot {
       let matches = searchMovies(allMovies, parsedName);
       if (parsedYear) matches = matches.filter((m) => String(m.year) === parsedYear);
       if (parsedLang) matches = matches.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
-      matches = dedupeAndRank(matches, parsedName);
 
       if (matches.length > 0) {
-        // Single exact match → auto-deliver via renderSearchResults
-        if (matches.length === 1 && normalizeTitle(matches[0].title) === normalizeTitle(parsedName)) {
-          const r = await renderSearchResults(ctx, parsedName, matches, 1);
-          if (r.delivered) return;
-        }
         if (tmdb.Poster) {
           await tempPhoto(ctx, tmdb.Poster, {
             caption: caption + `\n✅ *Available — ${matches.length} version(s)*`,
@@ -1633,10 +1591,8 @@ export function createBot(tokenOverride?: string): Bot {
     let results = searchMovies(allMovies, parsedName);
     if (parsedYear) results = results.filter((m) => String(m.year) === parsedYear);
     if (parsedLang) results = results.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
-    results = dedupeAndRank(results, parsedName);
     if (results.length > 0) {
-      const r = await renderSearchResults(ctx, parsedName, results, 1);
-      if (r.delivered) return;
+      await renderSearchResults(ctx, parsedName, results, 1);
       return;
     }
 

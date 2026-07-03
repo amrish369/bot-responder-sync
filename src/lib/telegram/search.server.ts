@@ -114,60 +114,77 @@ export function smartSearch(
   rawQuery: string,
   opts: SearchOptions = {},
 ): MovieRow[] {
-  const limit = opts.limit ?? 25;
+  const limit = opts.limit ?? 5;
   const q = rawQuery.trim();
   if (!q) return [];
   const qNorm = normalizeTitle(q);
   const qLight = lightNormalize(q);
   const filtered = applyFilters(list, opts);
-  const seen = new Set<number>();
-  const out: MovieRow[] = [];
-  const push = (m: MovieRow) => {
-    if (seen.has(m.id)) return;
-    seen.add(m.id);
-    out.push(m);
+  // Assign a relevance score to every candidate (lower = better, Fuse-style).
+  const scoreMap = new Map<number, number>();
+  const consider = (m: MovieRow, s: number) => {
+    const prev = scoreMap.get(m.id);
+    if (prev === undefined || s < prev) scoreMap.set(m.id, s);
   };
 
-  // 1) Exact title (case-insensitive)
+  // Tier 1 — exact title (case-insensitive): score 0.
   for (const m of filtered) {
-    if (m.title.toLowerCase() === q.toLowerCase()) push(m);
+    if (m.title.toLowerCase() === q.toLowerCase()) consider(m, 0);
   }
-  // 2) Normalized match
+  // Tier 2 — normalized title / original_title exact: 0.05.
   for (const m of filtered) {
-    if (normalizeTitle(m.title) === qNorm) push(m);
+    if (normalizeTitle(m.title) === qNorm) consider(m, 0.05);
     else if ((m as any).original_title && normalizeTitle((m as any).original_title) === qNorm)
-      push(m);
+      consider(m, 0.08);
   }
-  // 3) Alias match
+  // Tier 3 — alias match: 0.12.
   for (const m of filtered) {
     const aliases: string[] = ((m as any).aliases as string[] | null) ?? [];
-    if (aliases.some((a) => a === qNorm || a === qLight)) push(m);
+    if (aliases.some((a) => a === qNorm || a === qLight)) consider(m, 0.12);
   }
-  // 4) Substring match on title / original_title / search_text
+  // Tier 4 — substring: 0.2.
   for (const m of filtered) {
     const t = normalizeTitle(m.title);
     const orig = normalizeTitle((m as any).original_title || "");
     const st = ((m as any).search_text as string | null) || "";
-    if (t.includes(qNorm) || orig.includes(qNorm) || st.includes(qNorm)) push(m);
+    if (t.includes(qNorm) || orig.includes(qNorm) || st.includes(qNorm)) consider(m, 0.2);
   }
-  if (out.length >= limit) return out.slice(0, limit);
-
-  // 5) Fuse fuzzy over multi-field search space
+  // Tier 5 — Fuse fuzzy with proper config (includeScore, shouldSort, distance).
   const fuse = new Fuse(filtered, {
     keys: [
-      { name: "title", weight: 0.45 },
+      { name: "title", weight: 0.5 },
       { name: "original_title", weight: 0.2 },
-      { name: "aliases", weight: 0.25 },
+      { name: "aliases", weight: 0.2 },
       { name: "search_text", weight: 0.1 },
     ],
     threshold: dynamicThreshold(qNorm || q),
+    distance: 100,
     ignoreLocation: true,
     minMatchCharLength: Math.min(3, Math.max(2, Math.floor(qNorm.length / 3))),
     includeScore: true,
+    shouldSort: true,
+    isCaseSensitive: false,
   });
-  for (const r of fuse.search(qNorm || q)) push(r.item);
+  for (const r of fuse.search(qNorm || q)) {
+    // Offset fuzzy scores so exact/normalized/alias hits win.
+    consider(r.item, 0.25 + (r.score ?? 0.5));
+  }
 
-  return dedupeAndRank(out, rawQuery).slice(0, limit);
+  if (scoreMap.size === 0) return [];
+  const scored = [...scoreMap.entries()]
+    .map(([id, s]) => ({ movie: filtered.find((m) => m.id === id)!, score: s }))
+    .filter((x) => x.movie);
+
+  // Sort by score (lower = better).
+  scored.sort((a, b) => a.score - b.score);
+
+  // Dedupe by TMDB id / IMDb id / normalized title — keep the best-scored variant.
+  const ranked = dedupeAndRank(
+    scored.map((x) => x.movie),
+    rawQuery,
+    new Map(scored.map((x) => [x.movie.id, x.score])),
+  );
+  return ranked.slice(0, limit);
 }
 
 /** Fuzzy suggestions when smartSearch returns nothing. */
@@ -194,32 +211,42 @@ export function fuzzySuggest(list: MovieRow[], rawQuery: string, limit = 5): Mov
  * sort by: exact normalized title match, then year desc (newest first),
  * then original list order (which reflects search relevance / popularity).
  */
-export function dedupeAndRank(list: MovieRow[], rawQuery: string): MovieRow[] {
+export function dedupeAndRank(
+  list: MovieRow[],
+  rawQuery: string,
+  scores?: Map<number, number>,
+): MovieRow[] {
   const qNorm = normalizeTitle(rawQuery);
   const seen = new Map<string, MovieRow>();
   const order = new Map<number, number>();
   list.forEach((m, i) => order.set(m.id, i));
   for (const m of list) {
-    // Keep every distinct version (quality / language / year / file).
-    // Only collapse truly identical duplicate rows (same file_id or exact same metadata combo).
-    const variant = `${m.year ?? ""}|${(m.language || "").toLowerCase()}|${(m.quality || "").toLowerCase()}|${m.file_id || ""}`;
-    const base = (m as any).tmdb_id
+    // Collapse duplicate movies by strong identity: TMDB id → IMDb id → normalized title.
+    // For a given movie, keep the single best variant (verified / archived / better quality).
+    const key = (m as any).tmdb_id
       ? `t:${(m as any).tmdb_id}`
       : (m as any).imdb_id
         ? `i:${(m as any).imdb_id}`
         : `n:${normalizeTitle(m.title)}`;
-    const key = `${base}|${variant}`;
     const prev = seen.get(key);
     if (!prev) { seen.set(key, m); continue; }
-    // Prefer verified / archived / newer id
+    // Prefer verified → archived → better score → newer id.
+    const scorePrev = scores?.get(prev.id) ?? 1;
+    const scoreCur = scores?.get(m.id) ?? 1;
     const better =
       (((m as any).tmdb_verified ? 1 : 0) - ((prev as any).tmdb_verified ? 1 : 0)) ||
       ((m.storage_message_id ? 1 : 0) - (prev.storage_message_id ? 1 : 0)) ||
+      (scorePrev - scoreCur) ||
       (m.id - prev.id);
     if (better > 0) seen.set(key, m);
   }
   const arr = [...seen.values()];
   arr.sort((a, b) => {
+    if (scores) {
+      const sa = scores.get(a.id) ?? 1;
+      const sb = scores.get(b.id) ?? 1;
+      if (sa !== sb) return sa - sb;
+    }
     const ax = normalizeTitle(a.title) === qNorm ? 1 : 0;
     const bx = normalizeTitle(b.title) === qNorm ? 1 : 0;
     if (ax !== bx) return bx - ax;

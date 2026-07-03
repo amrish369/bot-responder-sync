@@ -26,7 +26,6 @@ import {
   buildSearchText,
   generateAliases,
   normalizeTitle,
-  dedupeAndRank,
 } from "./search.server";
 import {
   banUser,

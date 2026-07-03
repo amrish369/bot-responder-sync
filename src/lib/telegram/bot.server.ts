@@ -173,7 +173,7 @@ function movieBtnLabel(m: MovieRow): string {
   return `⬇️ ${parts.join(" ")}`.slice(0, 60);
 }
 
-const RESULTS_PER_PAGE = 10;
+const RESULTS_PER_PAGE = 5;
 
 function buildResultsMessage(
   query: string,
@@ -195,10 +195,15 @@ function buildResultsMessage(
     const qual = m.quality ? ` · ${escapeMarkdown(m.quality)}` : "";
     text += `*${n}.* ${escapeMarkdown(m.title)} (${m.year || "?"})${lang}${qual}\n`;
   });
-  text += `\n🔽 *Tap to download:*`;
+  text += `\n🔽 *Tap to get the movie — or request a different version:*`;
   const kb = new InlineKeyboard();
+  const reqKey = encodeURIComponent(query).slice(0, 50);
   slice.forEach((m, i) => {
-    kb.text(`${start + i + 1}. ${movieBtnLabel(m).replace(/^⬇️\s*/, "")}`, `send_${m.id}`).row();
+    const n = start + i + 1;
+    kb
+      .text(`${n}. ⬇️ Get Movie`, `send_${m.id}`)
+      .text(`📩 Request`, `req_pick_${reqKey}`)
+      .row();
   });
   return { text, keyboard: kb, pages };
 }

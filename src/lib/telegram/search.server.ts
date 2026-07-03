@@ -114,7 +114,7 @@ export function smartSearch(
   rawQuery: string,
   opts: SearchOptions = {},
 ): MovieRow[] {
-  const limit = opts.limit ?? 5;
+  const limit = opts.limit ?? 50;
   const q = rawQuery.trim();
   if (!q) return [];
   const qNorm = normalizeTitle(q);
@@ -178,13 +178,8 @@ export function smartSearch(
   // Sort by score (lower = better).
   scored.sort((a, b) => a.score - b.score);
 
-  // Dedupe by TMDB id / IMDb id / normalized title — keep the best-scored variant.
-  const ranked = dedupeAndRank(
-    scored.map((x) => x.movie),
-    rawQuery,
-    new Map(scored.map((x) => [x.movie.id, x.score])),
-  );
-  return ranked.slice(0, limit);
+  // Return ALL matching files (no dedupe) — user wants to see every variant.
+  return scored.slice(0, limit).map((x) => x.movie);
 }
 
 /** Fuzzy suggestions when smartSearch returns nothing. */

@@ -609,6 +609,9 @@ export const drainDeleteQueue = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     await assertAdmin(context.claims);
     const origin = await publicOrigin();
-    const res = await fetch(`${origin}/api/public/hooks/run-delete-queue`, { method: "POST" });
+    const res = await fetch(`${origin}/api/public/hooks/run-delete-queue`, {
+      method: "POST",
+      headers: { "x-hook-secret": process.env.HOOK_SECRET ?? "" },
+    });
     return await res.json();
   });

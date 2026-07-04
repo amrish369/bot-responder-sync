@@ -944,14 +944,20 @@ export function createBot(tokenOverride?: string): Bot {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const pend = await listPendingRequests();
     if (!pend.length) return ctx.reply("✅ No pending requests.");
-    let txt = `📩 *Pending Requests — ${pend.length} total*\n\n`;
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    let txt = `📩 <b>Pending Requests — ${pend.length} total</b>\n\n`;
     const kb = new InlineKeyboard();
     pend.slice(0, 20).forEach((r, i) => {
       const date = new Date(r.created_at).toLocaleDateString("en-IN");
-      txt += `*${i + 1}.* 🎬 ${escapeMarkdown(r.title)}\n   👤 ${r.username ?? r.user_id}  |  🆔 \`${r.user_id}\`\n   📅 ${date}\n\n`;
-      kb.text(`✅ Fulfill #${i + 1}: ${r.title.slice(0, 20)}`, `rdi_${r.id}`).row();
+      const user = r.username ? `@${esc(r.username)}` : String(r.user_id);
+      txt += `<b>${i + 1}.</b> 🎬 ${esc(r.title)}\n   👤 ${user}  |  🆔 <code>${r.user_id}</code>\n   📅 ${esc(date)}\n\n`;
+      kb.text(`✅ Fulfill #${i + 1}`, `rdi_${r.id}`).row();
     });
-    await ctx.reply(txt, { parse_mode: "Markdown", reply_markup: kb });
+    try {
+      await ctx.reply(txt, { parse_mode: "HTML", reply_markup: kb });
+    } catch (e) {
+      await ctx.reply(`❌ Error showing pending: ${(e as Error).message}`);
+    }
   });
 
   bot.command("search", async (ctx) => {

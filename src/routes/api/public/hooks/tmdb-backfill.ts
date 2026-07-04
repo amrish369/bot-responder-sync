@@ -2,11 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { tmdbVerify } from "@/lib/telegram/tmdb.server";
 import { buildSearchText, generateAliases } from "@/lib/telegram/search.server";
+import { verifyHookSecret } from "@/lib/telegram/hook-auth.server";
 
 export const Route = createFileRoute("/api/public/hooks/tmdb-backfill")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const unauth = verifyHookSecret(request);
+        if (unauth) return unauth;
         const url = new URL(request.url);
         const limit = Math.min(50, Number(url.searchParams.get("limit") || "20"));
         const { data: rows } = await supabaseAdmin

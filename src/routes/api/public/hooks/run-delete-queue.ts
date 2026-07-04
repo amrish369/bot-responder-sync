@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { BOT_TOKEN } from "@/lib/telegram/config.server";
+import { verifyHookSecret } from "@/lib/telegram/hook-auth.server";
 
 async function tokenForBot(botId: number | null): Promise<string | null> {
   if (botId) {
@@ -62,8 +63,16 @@ async function runOnce(limit = 200) {
 export const Route = createFileRoute("/api/public/hooks/run-delete-queue")({
   server: {
     handlers: {
-      POST: async () => Response.json(await runOnce()),
-      GET: async () => Response.json(await runOnce()),
+      POST: async ({ request }) => {
+        const unauth = verifyHookSecret(request);
+        if (unauth) return unauth;
+        return Response.json(await runOnce());
+      },
+      GET: async ({ request }) => {
+        const unauth = verifyHookSecret(request);
+        if (unauth) return unauth;
+        return Response.json(await runOnce());
+      },
     },
   },
 });

@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { BOT_TOKEN, webhookSecret } from "@/lib/telegram/config.server";
+import { verifyHookSecret } from "@/lib/telegram/hook-auth.server";
 
 export const Route = createFileRoute("/api/public/telegram/register")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const unauth = verifyHookSecret(request);
+        if (unauth) return unauth;
         const url = new URL(request.url);
         const webhookUrl =
           url.searchParams.get("url") ||

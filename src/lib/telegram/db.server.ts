@@ -217,7 +217,9 @@ export async function listAllUsers(): Promise<UserRow[]> {
 
 // payload store (callback button data)
 export async function storePayload(data: unknown): Promise<string> {
-  const key = Math.random().toString(36).slice(2, 10);
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const key = Buffer.from(bytes).toString("base64url");
   const expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await supabaseAdmin.from("payload_store").insert({ key, data: data as any, expires_at });
   return key;

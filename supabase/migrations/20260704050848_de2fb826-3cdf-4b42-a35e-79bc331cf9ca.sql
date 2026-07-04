@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.cleanup_old_cached_data() FROM PUBLIC, anon, authenticated;

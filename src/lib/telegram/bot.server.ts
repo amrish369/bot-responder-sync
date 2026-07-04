@@ -174,35 +174,43 @@ function movieBtnLabel(m: MovieRow): string {
 
 const RESULTS_PER_PAGE = 5;
 
+function formatSize(bytes: number | null | undefined): string | null {
+  if (!bytes || bytes <= 0) return null;
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function movieRowLabel(m: MovieRow): string {
+  const size = formatSize((m as any).file_size);
+  const bits = [m.title];
+  if (m.year) bits.push(String(m.year));
+  if (m.language) bits.push(m.language);
+  if (m.quality) bits.push(m.quality);
+  const label = bits.join(" ");
+  const prefix = size ? `[${size}] ` : "";
+  // Telegram button label max ~64 chars
+  return (prefix + label).slice(0, 64);
+}
+
 function buildResultsMessage(
   query: string,
   ids: number[],
   movies: MovieRow[],
   page: number,
+  requestLabel?: string,
 ): { text: string; keyboard: InlineKeyboard; pages: number } {
   const total = ids.length;
   const pages = Math.max(1, Math.ceil(total / RESULTS_PER_PAGE));
   const p = Math.min(Math.max(1, page), pages);
   const start = (p - 1) * RESULTS_PER_PAGE;
   const slice = movies.slice(start, start + RESULTS_PER_PAGE);
-  let text = `🎬 *${total} result(s) for "${escapeMarkdown(query)}"*`;
-  if (pages > 1) text += ` — page ${p}/${pages}`;
-  text += `\n\n`;
-  slice.forEach((m, i) => {
-    const n = start + i + 1;
-    const lang = m.language ? ` · ${escapeMarkdown(m.language)}` : "";
-    const qual = m.quality ? ` · ${escapeMarkdown(m.quality)}` : "";
-    text += `*${n}.* ${escapeMarkdown(m.title)} (${m.year || "?"})${lang}${qual}\n`;
-  });
-  text += `\n🔽 *Tap to get the movie — or request a different version:*`;
+  let text = `👋 *Hey,*\n\n📽️ *I found some results for your query* 👉 *${escapeMarkdown(query)}*`;
+  if (pages > 1) text += `\n\n_Page ${p}/${pages}_`;
   const kb = new InlineKeyboard();
-  const reqKey = encodeURIComponent(query).slice(0, 50);
-  slice.forEach((m, i) => {
-    const n = start + i + 1;
-    kb
-      .text(`${n}. ⬇️ Get Movie`, `send_${m.id}`)
-      .text(`📩 Request`, `req_pick_${reqKey}`)
-      .row();
+  kb.url("🤔 How To Download 🤔", WEBSITE_URL).row();
+  slice.forEach((m) => {
+    kb.text(movieRowLabel(m), `send_${m.id}`).row();
   });
   return { text, keyboard: kb, pages };
 }
@@ -224,7 +232,19 @@ async function renderSearchResults(
     keyboard.text(`📄 ${page}/${pages}`, "noop");
     if (page < pages) keyboard.text("Next ➡️", `pg|${key}|${page + 1}`);
   }
-  keyboard.row().url("⚡ 3x Fast Download", WEBSITE_URL);
+  // TMDB-verify the user's raw query and append a request button at the bottom.
+  const reqKey = encodeURIComponent(query).slice(0, 50);
+  let reqLabel = `📩 Request "${query.slice(0, 30)}"`;
+  try {
+    const tmdb = await tmdbSearchByTitle(query);
+    if (tmdb?.Title) {
+      const yr = tmdb.Year ? ` (${tmdb.Year})` : "";
+      reqLabel = `📩 Request: ${tmdb.Title}${yr}`.slice(0, 60);
+    }
+  } catch {
+    /* ignore TMDB failures — fall back to raw query label */
+  }
+  keyboard.row().text(reqLabel, `req_pick_${reqKey}`);
   if (editKey) {
     try {
       await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });

@@ -353,6 +353,21 @@ function mergeKeyboards(a: InlineKeyboard, b: InlineKeyboard): InlineKeyboard {
   return merged;
 }
 
+// Backup group button (per-file). Returns null if not configured.
+async function backupGroupKb(): Promise<InlineKeyboard | null> {
+  const s = await getSettings();
+  const url = asHttpsLink(s.backup_group_link);
+  if (!url) return null;
+  return new InlineKeyboard().url("🗂️ Backup Group", url);
+}
+
+async function withBackupKb(kb?: InlineKeyboard | null): Promise<InlineKeyboard | undefined> {
+  const backup = await backupGroupKb();
+  if (!backup) return kb ?? undefined;
+  if (!kb) return backup;
+  return mergeKeyboards(kb, backup);
+}
+
 // ── force join (DB-backed) ──
 async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();
@@ -564,7 +579,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
             (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
             `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
           parse_mode: "Markdown",
-          reply_markup: dmKb,
+          reply_markup: await withBackupKb(dmKb),
         });
         await fulfillRequest(req.id);
         delivered++;
@@ -692,7 +707,7 @@ export function createBot(tokenOverride?: string): Bot {
           `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
           `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
         try {
-          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown" });
+          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
           if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
         } catch (e) {
           await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
@@ -1833,7 +1848,7 @@ export function createBot(tokenOverride?: string): Bot {
         if (inGroup) {
           // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
           try {
-            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
             if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
             await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
           } catch (dmErr) {
@@ -1850,7 +1865,7 @@ export function createBot(tokenOverride?: string): Bot {
         }
 
         // Private chat — deliver directly
-        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: kb });
+        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
         if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
@@ -2002,7 +2017,7 @@ export function createBot(tokenOverride?: string): Bot {
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
             `✅ *Ab aap is movie ko download kar sakte hain!*`,
-          parse_mode: "Markdown", reply_markup: dmKb,
+          parse_mode: "Markdown", reply_markup: await withBackupKb(dmKb),
         });
         return ctx.answerCallbackQuery({ text: `✅ ${m.title} — DM bhej di!` });
       } catch (e) {

@@ -756,6 +756,12 @@ export function createBot(tokenOverride?: string): Bot {
     const firstName = ctx.from?.first_name || "User";
     const startParam = ctx.match as string;
 
+    // Deep-link: group se "Start & Join All" tap
+    if (startParam === "join") {
+      await sendJoinAllInDm(bot, uid);
+      return;
+    }
+
     // Deep-link: user tapped "Start Bot to Receive File" in a group
     if (startParam?.startsWith("get_")) {
       const mid = Number(startParam.slice(4));

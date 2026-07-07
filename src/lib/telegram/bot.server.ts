@@ -396,6 +396,36 @@ async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
   return (await missingChannels(bot, userId)).length === 0;
 }
 
+// User ne bot ko DM me start kiya hai ya nahi
+async function hasStartedBot(bot: Bot, userId: number): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("tg_users").select("telegram_id").eq("telegram_id", userId).maybeSingle();
+  if (!data) return false;
+  try { await bot.api.sendChatAction(userId, "typing"); return true; }
+  catch { return false; }
+}
+
+function startAndJoinKb(): InlineKeyboard {
+  return new InlineKeyboard()
+    .url("▶️ Start & Join All", `https://t.me/${BOT_USERNAME()}?start=join`);
+}
+
+async function sendJoinAllInDm(bot: Bot, uid: number) {
+  const s = await getSettings();
+  const kb = new InlineKeyboard();
+  const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
+  const backupLink = asHttpsLink(s.backup_group_link);
+  if (mainLink) kb.url("📢 Main Group Join Karein", mainLink).row();
+  if (backupLink) kb.url("🗂️ Backup Group Join Karein", backupLink).row();
+  kb.text("✅ Sab Join Kar Li — Verify", "verify_join");
+  await bot.api.sendMessage(uid,
+    `🎬 *Welcome CineRadar!*\n\n` +
+    `Bot use karne se pehle neeche diye sab groups join karo, phir *Verify* dabaao.\n` +
+    `Verify hone ke baad group me movie ka naam likhte hi turant reply milega.`,
+    { parse_mode: "Markdown", reply_markup: kb }
+  ).catch((e) => console.error("[sendJoinAllInDm]", (e as Error).message));
+}
+
 async function sendForceJoinMsg(ctx: Context) {
   const s = await getSettings();
   const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);

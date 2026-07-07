@@ -353,6 +353,21 @@ function mergeKeyboards(a: InlineKeyboard, b: InlineKeyboard): InlineKeyboard {
   return merged;
 }
 
+// Backup group button (per-file). Returns null if not configured.
+async function backupGroupKb(): Promise<InlineKeyboard | null> {
+  const s = await getSettings();
+  const url = asHttpsLink(s.backup_group_link);
+  if (!url) return null;
+  return new InlineKeyboard().url("🗂️ Backup Group", url);
+}
+
+async function withBackupKb(kb?: InlineKeyboard | null): Promise<InlineKeyboard | undefined> {
+  const backup = await backupGroupKb();
+  if (!backup) return kb ?? undefined;
+  if (!kb) return backup;
+  return mergeKeyboards(kb, backup);
+}
+
 // ── force join (DB-backed) ──
 async function forceJoinTargets(): Promise<string[]> {
   const s = await getSettings();

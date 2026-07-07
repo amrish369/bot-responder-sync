@@ -673,7 +673,8 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.reply(
           `✅ *Verification Successful!*\n\n` +
           `🎬 Ab aap CineRadar AI use kar sakte hain!\n` +
-          `Movie ka naam type karo ya /help dekho.`,
+          `Ab group me movie ka naam likhte hi turant reply milega — ya yahin DM me type karo.\n` +
+          `/help se sab commands dekho.`,
           { parse_mode: "Markdown" }
         ).catch(() => {});
         return ctx.answerCallbackQuery({ text: "✅ Verified! Bot use kar sakte hain." });
@@ -685,7 +686,35 @@ export function createBot(tokenOverride?: string): Bot {
     }
 
     const chatType = ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type;
-    if (chatType && chatType !== "private") return next();
+    if (chatType && chatType !== "private") {
+      // Group: bot start + sab groups joined dono zaroori
+      const started = await hasStartedBot(bot, uid);
+      const missing = started ? await missingChannels(bot, uid) : ["*"];
+      if (started && missing.length === 0) return next();
+
+      if (ctx.callbackQuery) {
+        return ctx.answerCallbackQuery({
+          text: started
+            ? "⚠️ Pehle sab groups join karein!"
+            : "⚠️ Pehle bot ko DM me Start karein!",
+          show_alert: true,
+        });
+      }
+
+      const reason = !started
+        ? "Pehle bot ko DM me *Start* karo."
+        : "Pehle sab groups join karo.";
+      const uname = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name ?? "user");
+      const reply = await ctx.reply(
+        `⚠️ ${uname}, ${reason}\n` +
+        `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
+        { parse_mode: "Markdown", reply_markup: startAndJoinKb() }
+      ).catch(() => null);
+      if (reply && ctx.chat?.id) {
+        await scheduleDelete(ctx.api, ctx.chat.id, reply.message_id, ctx.message?.message_id ?? 0);
+      }
+      return;
+    }
 
     const joined = await isChannelMember(bot, uid);
     if (!joined) {

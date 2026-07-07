@@ -396,6 +396,36 @@ async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
   return (await missingChannels(bot, userId)).length === 0;
 }
 
+// User ne bot ko DM me start kiya hai ya nahi
+async function hasStartedBot(bot: Bot, userId: number): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("tg_users").select("telegram_id").eq("telegram_id", userId).maybeSingle();
+  if (!data) return false;
+  try { await bot.api.sendChatAction(userId, "typing"); return true; }
+  catch { return false; }
+}
+
+function startAndJoinKb(): InlineKeyboard {
+  return new InlineKeyboard()
+    .url("▶️ Start & Join All", `https://t.me/${BOT_USERNAME()}?start=join`);
+}
+
+async function sendJoinAllInDm(bot: Bot, uid: number) {
+  const s = await getSettings();
+  const kb = new InlineKeyboard();
+  const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
+  const backupLink = asHttpsLink(s.backup_group_link);
+  if (mainLink) kb.url("📢 Main Group Join Karein", mainLink).row();
+  if (backupLink) kb.url("🗂️ Backup Group Join Karein", backupLink).row();
+  kb.text("✅ Sab Join Kar Li — Verify", "verify_join");
+  await bot.api.sendMessage(uid,
+    `🎬 *Welcome CineRadar!*\n\n` +
+    `Bot use karne se pehle neeche diye sab groups join karo, phir *Verify* dabaao.\n` +
+    `Verify hone ke baad group me movie ka naam likhte hi turant reply milega.`,
+    { parse_mode: "Markdown", reply_markup: kb }
+  ).catch((e) => console.error("[sendJoinAllInDm]", (e as Error).message));
+}
+
 async function sendForceJoinMsg(ctx: Context) {
   const s = await getSettings();
   const mainLink = asHttpsLink(s.main_group_link || s.force_join_link);
@@ -643,7 +673,8 @@ export function createBot(tokenOverride?: string): Bot {
         await ctx.reply(
           `✅ *Verification Successful!*\n\n` +
           `🎬 Ab aap CineRadar AI use kar sakte hain!\n` +
-          `Movie ka naam type karo ya /help dekho.`,
+          `Ab group me movie ka naam likhte hi turant reply milega — ya yahin DM me type karo.\n` +
+          `/help se sab commands dekho.`,
           { parse_mode: "Markdown" }
         ).catch(() => {});
         return ctx.answerCallbackQuery({ text: "✅ Verified! Bot use kar sakte hain." });
@@ -655,7 +686,35 @@ export function createBot(tokenOverride?: string): Bot {
     }
 
     const chatType = ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type;
-    if (chatType && chatType !== "private") return next();
+    if (chatType && chatType !== "private") {
+      // Group: bot start + sab groups joined dono zaroori
+      const started = await hasStartedBot(bot, uid);
+      const missing = started ? await missingChannels(bot, uid) : ["*"];
+      if (started && missing.length === 0) return next();
+
+      if (ctx.callbackQuery) {
+        return ctx.answerCallbackQuery({
+          text: started
+            ? "⚠️ Pehle sab groups join karein!"
+            : "⚠️ Pehle bot ko DM me Start karein!",
+          show_alert: true,
+        });
+      }
+
+      const reason = !started
+        ? "Pehle bot ko DM me *Start* karo."
+        : "Pehle sab groups join karo.";
+      const uname = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name ?? "user");
+      const reply = await ctx.reply(
+        `⚠️ ${uname}, ${reason}\n` +
+        `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
+        { parse_mode: "Markdown", reply_markup: startAndJoinKb() }
+      ).catch(() => null);
+      if (reply && ctx.chat?.id) {
+        await scheduleDelete(ctx.api, ctx.chat.id, reply.message_id, ctx.message?.message_id ?? 0);
+      }
+      return;
+    }
 
     const joined = await isChannelMember(bot, uid);
     if (!joined) {
@@ -696,6 +755,12 @@ export function createBot(tokenOverride?: string): Bot {
     }
     const firstName = ctx.from?.first_name || "User";
     const startParam = ctx.match as string;
+
+    // Deep-link: group se "Start & Join All" tap
+    if (startParam === "join") {
+      await sendJoinAllInDm(bot, uid);
+      return;
+    }
 
     // Deep-link: user tapped "Start Bot to Receive File" in a group
     if (startParam?.startsWith("get_")) {

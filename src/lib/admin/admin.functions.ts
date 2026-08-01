@@ -253,9 +253,15 @@ export const addBotToken = createServerFn({ method: "POST" })
       name: data.name, token: data.token, notes: data.notes ?? null, bot_username: username,
     }).select("id").single();
     if (error) throw new Error(error.message);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.add", { id: row.id, username, storageWarning });
-    return { ok: true, id: row.id, username, storageWarning };
+    const { logActivity, syncBotWebhook } = await import("./admin.server");
+    // Auto-register this bot's OWN webhook so multiple bots can run together.
+    const hook = await syncBotWebhook(row.id, await publicOrigin());
+    await logActivity(email, "bot.add", { id: row.id, username, storageWarning, hook });
+    return {
+      ok: true, id: row.id, username, storageWarning,
+      webhook: hook.url,
+      webhookError: hook.ok ? null : hook.error ?? null,
+    };
   });
 
 export const toggleBotEnabled = createServerFn({ method: "POST" })
@@ -278,9 +284,20 @@ export const setActiveBot = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("bot_tokens").update({ is_active: false }).neq("id", -1);
     await supabaseAdmin.from("bot_tokens").update({ is_active: true, updated_at: new Date().toISOString() }).eq("id", data.id);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.set_active", { id: data.id });
-    return { ok: true };
+    const { logActivity, syncBotWebhook } = await import("./admin.server");
+    // Main bot shift: make sure the new main bot's webhook is live, and refresh
+    // every other enabled bot's webhook so they all keep working side by side.
+    const origin = await publicOrigin();
+    const main = await syncBotWebhook(data.id, origin);
+    const { data: others } = await supabaseAdmin
+      .from("bot_tokens").select("id").eq("enabled", true).neq("id", data.id);
+    const results: Array<{ id: number; ok: boolean; error?: string }> = [];
+    for (const o of (others ?? []) as any[]) {
+      const r = await syncBotWebhook(o.id, origin);
+      results.push({ id: o.id, ok: r.ok, ...(r.error ? { error: r.error } : {}) });
+    }
+    await logActivity(email, "bot.set_active", { id: data.id, main, others: results });
+    return { ok: true, main, others: results };
   });
 
 export const removeBotToken = createServerFn({ method: "POST" })

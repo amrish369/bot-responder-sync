@@ -405,9 +405,14 @@ async function hasStartedBot(bot: Bot, userId: number): Promise<boolean> {
   catch { return false; }
 }
 
-function startAndJoinKb(): InlineKeyboard {
+/** Username of the bot that is currently handling the update (multi-bot safe). */
+function meName(ctx: any): string {
+  return ctx?.me?.username || BOT_USERNAME();
+}
+
+function startAndJoinKb(uname: string): InlineKeyboard {
   return new InlineKeyboard()
-    .url("▶️ Start & Join All", `https://t.me/${BOT_USERNAME()}?start=join`);
+    .url("▶️ Start & Join All", `https://t.me/${uname}?start=join`);
 }
 
 async function sendJoinAllInDm(bot: Bot, uid: number) {
@@ -708,7 +713,7 @@ export function createBot(tokenOverride?: string): Bot {
       const reply = await ctx.reply(
         `⚠️ ${uname}, ${reason}\n` +
         `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
-        { parse_mode: "Markdown", reply_markup: startAndJoinKb() }
+        { parse_mode: "Markdown", reply_markup: startAndJoinKb(meName(ctx)) }
       ).catch(() => null);
       if (reply && ctx.chat?.id) {
         await scheduleDelete(ctx.api, ctx.chat.id, reply.message_id, ctx.message?.message_id ?? 0);
@@ -747,7 +752,7 @@ export function createBot(tokenOverride?: string): Bot {
     await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
     if (chatType !== "private") {
       const kb = new InlineKeyboard()
-        .url("🤖 Bot DM Mein Start Karein", `https://t.me/${BOT_USERNAME()}?start=from_group`);
+        .url("🤖 Bot DM Mein Start Karein", `https://t.me/${meName(ctx)}?start=from_group`);
       return ctx.reply(
         `Bot ko DM mein start karein taaki movies download kar sakein aur updates milein.`,
         { reply_markup: kb }
@@ -1337,7 +1342,7 @@ export function createBot(tokenOverride?: string): Bot {
     }
     const targets = [CHANNEL(), BACKUP_CHANNEL()];
     const kb = new InlineKeyboard()
-      .url("🎬 Movies Bot — Start", `https://t.me/${BOT_USERNAME()}?start=promo`).row()
+      .url("🎬 Movies Bot — Start", `https://t.me/${meName(ctx)}?start=promo`).row()
       .url("⚡ 3x Fast Download", WEBSITE_URL);
     let ok = 0, fail: string[] = [];
     for (const ch of targets) {
@@ -1919,7 +1924,7 @@ export function createBot(tokenOverride?: string): Bot {
           } catch (dmErr) {
             // User hasn't started the bot → deep-link them
             const deepKb = new InlineKeyboard()
-              .url("▶️ Start Bot to Receive File", `https://t.me/${BOT_USERNAME()}?start=get_${m.id}`);
+              .url("▶️ Start Bot to Receive File", `https://t.me/${meName(ctx)}?start=get_${m.id}`);
             await ctx.api.sendMessage(chatId!,
               `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai.\n` +
               `Pehle bot ko start karo, phir file automatically aa jayegi.`,

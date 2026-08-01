@@ -329,18 +329,9 @@ export const testBotConnection = createServerFn({ method: "POST" })
 async function publicOrigin(): Promise<string> {
   const env = process.env.PUBLIC_APP_URL || process.env.APP_URL;
   if (env) return env.replace(/\/$/, "");
-  try {
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const req = getRequest();
-    if (req?.url) {
-      const u = new URL(req.url);
-      // Prefer forwarded host if behind a proxy
-      const fwdHost = req.headers.get("x-forwarded-host");
-      const fwdProto = req.headers.get("x-forwarded-proto") || u.protocol.replace(":", "");
-      const host = fwdHost || u.host;
-      return `${fwdProto}://${host}`;
-    }
-  } catch {}
+  // NEVER derive this from the admin panel request: the panel is often opened on
+  // an `id-preview--…` host, which redirects through auth and makes every
+  // Telegram webhook fail. Always use the stable published project URL.
   return "https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app";
 }
 

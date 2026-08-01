@@ -226,9 +226,26 @@ export const addBotToken = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const email = await assertAdmin(context.claims);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Same token already saved? Re-use the existing row instead of erroring.
+    const { data: dup } = await supabaseAdmin.from("bot_tokens")
+      .select("id").eq("token", data.token).maybeSingle();
+    if (dup) {
+      const { syncBotWebhook } = await import("./admin.server");
+      const h = await syncBotWebhook((dup as any).id, await publicOrigin());
+      return {
+        ok: true, id: (dup as any).id, username: null,
+        storageWarning: "Yeh token pehle se saved tha — webhook dobara register kar diya.",
+        webhook: h.url, webhookError: h.ok ? null : h.error ?? null,
+      };
+    }
     // test the token
-    const res = await fetch(`https://api.telegram.org/bot${data.token}/getMe`);
-    const j = await res.json();
+    let j: any;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${data.token}/getMe`);
+      j = await res.json();
+    } catch (e) {
+      throw new Error(`Telegram se connect nahi ho paya: ${(e as Error).message}`);
+    }
     if (!j.ok) throw new Error(`Token rejected by Telegram: ${j.description || "unknown"}`);
     const username = j.result?.username ?? null;
     // verify the bot is admin in the configured storage channel (otherwise it
@@ -252,10 +269,15 @@ export const addBotToken = createServerFn({ method: "POST" })
     const { data: row, error } = await supabaseAdmin.from("bot_tokens").insert({
       name: data.name, token: data.token, notes: data.notes ?? null, bot_username: username,
     }).select("id").single();
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(`DB save failed: ${error.message}`);
     const { logActivity, syncBotWebhook } = await import("./admin.server");
     // Auto-register this bot's OWN webhook so multiple bots can run together.
-    const hook = await syncBotWebhook(row.id, await publicOrigin());
+    let hook: { ok: boolean; url: string; error?: string };
+    try {
+      hook = await syncBotWebhook(row.id, await publicOrigin());
+    } catch (e) {
+      hook = { ok: false, url: "", error: (e as Error).message };
+    }
     await logActivity(email, "bot.add", { id: row.id, username, storageWarning, hook });
     return {
       ok: true, id: row.id, username, storageWarning,
@@ -329,18 +351,9 @@ export const testBotConnection = createServerFn({ method: "POST" })
 async function publicOrigin(): Promise<string> {
   const env = process.env.PUBLIC_APP_URL || process.env.APP_URL;
   if (env) return env.replace(/\/$/, "");
-  try {
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const req = getRequest();
-    if (req?.url) {
-      const u = new URL(req.url);
-      // Prefer forwarded host if behind a proxy
-      const fwdHost = req.headers.get("x-forwarded-host");
-      const fwdProto = req.headers.get("x-forwarded-proto") || u.protocol.replace(":", "");
-      const host = fwdHost || u.host;
-      return `${fwdProto}://${host}`;
-    }
-  } catch {}
+  // NEVER derive this from the admin panel request: the panel is often opened on
+  // an `id-preview--…` host, which redirects through auth and makes every
+  // Telegram webhook fail. Always use the stable published project URL.
   return "https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app";
 }
 

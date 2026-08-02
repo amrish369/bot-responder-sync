@@ -22,7 +22,7 @@ async function deleteOne(token: string, chatId: number, messageId: number) {
   return { ok: !!j.ok, desc: (j.description as string) || null };
 }
 
-async function runOnce(limit = 200) {
+async function runOnce(limit = 500) {
   const { data: rows, error } = await supabaseAdmin
     .from("delete_queue")
     .select("*")

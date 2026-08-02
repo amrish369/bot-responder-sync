@@ -178,7 +178,22 @@ export function smartSearch(
   // Sort by score (lower = better).
   scored.sort((a, b) => a.score - b.score);
 
-  // Return ALL matching files (no dedupe) — user wants to see every variant.
+  // Title lock: agar koi strong match (exact / normalized / alias / substring) hai,
+  // to sirf usi movie title ke saare variants dikhao — doosri milti-julti movies nahi.
+  const strong = scored.filter((x) => x.score <= 0.2);
+  if (strong.length > 0) {
+    const bestTitle = normalizeTitle(strong[0].movie.title);
+    const sameTitle = strong.filter((x) => {
+      const t = normalizeTitle(x.movie.title);
+      if (t === bestTitle) return true;
+      const orig = normalizeTitle((x.movie as any).original_title || "");
+      return !!orig && orig === bestTitle;
+    });
+    const pick = sameTitle.length > 0 ? sameTitle : strong;
+    return pick.slice(0, limit).map((x) => x.movie);
+  }
+
+  // Sirf fuzzy match mila — wahi lautao (bot iska fallback UI dikhata hai).
   return scored.slice(0, limit).map((x) => x.movie);
 }
 

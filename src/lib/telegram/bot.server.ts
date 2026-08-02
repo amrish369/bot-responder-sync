@@ -269,26 +269,15 @@ async function tempReply(ctx: Context, text: string, opts: any = {}) {
     console.error("[tempReply]", (e as Error).message);
     return null;
   });
-  
-  const isA = isAdmin(ctx.from?.id);
-  
-  // 🔒 SECURITY GATE: Admin ka text SMS group/DM se delete NAHI hoga
-  if (msg && ctx.chat?.id && !isA) {
-    const userMsgId = ctx.message?.message_id || 0;
-    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, userMsgId);
-  }
+  // Outgoing messages are auto-queued by the global API transformer in createBot().
   return msg;
 }
 
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
-  const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.replyWithPhoto(photo, opts).catch((e) => {
     console.error("[tempPhoto]", (e as Error).message);
     return null;
   });
-  if (!isA && msg && ctx.chat?.id) {
-    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
-  }
   return msg;
 }
 
@@ -637,6 +626,61 @@ export function createBot(tokenOverride?: string): Bot {
 
   bot.catch((err) => {
     console.error("[telegram bot]", err.error instanceof Error ? err.error.message : String(err.error));
+  });
+
+  // ── Universal auto-delete: har outgoing message (text/photo/video/document/
+  // copyMessage/media group) queue me chala jata hai. Storage channel skip.
+  const AUTO_DELETE_METHODS = new Set([
+    "sendMessage",
+    "sendPhoto",
+    "sendVideo",
+    "sendDocument",
+    "sendAnimation",
+    "sendAudio",
+    "sendVoice",
+    "sendSticker",
+    "sendMediaGroup",
+    "copyMessage",
+    "forwardMessage",
+  ]);
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    const res = await prev(method, payload as any, signal);
+    try {
+      if ((res as any).ok && AUTO_DELETE_METHODS.has(method as string)) {
+        const chatId = Number((payload as any)?.chat_id);
+        if (Number.isFinite(chatId)) {
+          const s = await getSettings();
+          const storage = Number(s.storage_channel_id);
+          if (s.autodelete_status && chatId !== storage) {
+            const result: any = (res as any).result;
+            const ids = Array.isArray(result)
+              ? result.map((r: any) => r?.message_id)
+              : [result?.message_id];
+            await enqueueDelete(chatId, ids, s.autodelete_timer);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[auto-delete transformer]", (e as Error).message);
+    }
+    return res;
+  });
+
+  // Incoming messages (user + admin, private + group) bhi delete queue me.
+  bot.use(async (ctx, next) => {
+    const chatId = ctx.chat?.id;
+    const msgId = ctx.message?.message_id ?? ctx.editedMessage?.message_id;
+    if (chatId && msgId) {
+      try {
+        const s = await getSettings();
+        if (s.autodelete_status && Number(chatId) !== Number(s.storage_channel_id)) {
+          await enqueueDelete(chatId, [msgId], s.autodelete_timer);
+        }
+      } catch (e) {
+        console.error("[auto-delete incoming]", (e as Error).message);
+      }
+    }
+    return next();
   });
 
   bot.on("chat_join_request", async (ctx) => {

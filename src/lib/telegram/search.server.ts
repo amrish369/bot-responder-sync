@@ -178,18 +178,41 @@ export function smartSearch(
   // Sort by score (lower = better).
   scored.sort((a, b) => a.score - b.score);
 
-  // Title lock: agar koi strong match (exact / normalized / alias / substring) hai,
-  // to sirf usi movie title ke saare variants dikhao — doosri milti-julti movies nahi.
+  // Franchise lock: agar koi strong match (exact / normalized / alias / substring) hai,
+  // to usi naam ki saari files + uske sequels/parts (Dhamaal, Dhamaal 2, Dhamaal 3)
+  // dikhao — lekin bilkul alag movies nahi.
   const strong = scored.filter((x) => x.score <= 0.2);
   if (strong.length > 0) {
+    // Base name = jo user ne search kiya (agar wo strong match ka prefix hai),
+    // warna best match ka title.
     const bestTitle = normalizeTitle(strong[0].movie.title);
-    const sameTitle = strong.filter((x) => {
-      const t = normalizeTitle(x.movie.title);
-      if (t === bestTitle) return true;
-      const orig = normalizeTitle((x.movie as any).original_title || "");
-      return !!orig && orig === bestTitle;
+    const compact = (s: string) => s.replace(/\s+/g, "");
+    const base =
+      qNorm && compact(bestTitle).startsWith(compact(qNorm)) ? qNorm : bestTitle;
+    const cBase = compact(base);
+
+    const belongs = (m: MovieRow) => {
+      const cands = [normalizeTitle(m.title), normalizeTitle((m as any).original_title || "")]
+        .filter(Boolean)
+        .map(compact);
+      return cands.some((c) => {
+        if (c === cBase) return true;
+        if (!c.startsWith(cBase)) return false;
+        // Sequel / part suffix: "dhamaal2", "dhamaal3", "spidermannowayhome"
+        return c.length > cBase.length;
+      });
+    };
+
+    const family = scored.filter((x) => belongs(x.movie));
+    const pick = family.length > 0 ? family : strong;
+    // Exact query match sabse upar, phir score, phir year desc.
+    pick.sort((a, b) => {
+      const ae = compact(normalizeTitle(a.movie.title)) === cBase ? 0 : 1;
+      const be = compact(normalizeTitle(b.movie.title)) === cBase ? 0 : 1;
+      if (ae !== be) return ae - be;
+      if (a.score !== b.score) return a.score - b.score;
+      return (a.movie.year ?? 0) - (b.movie.year ?? 0);
     });
-    const pick = sameTitle.length > 0 ? sameTitle : strong;
     return pick.slice(0, limit).map((x) => x.movie);
   }
 

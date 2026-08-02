@@ -149,6 +149,15 @@ export function smartSearch(
     const st = ((m as any).search_text as string | null) || "";
     if (t.includes(qNorm) || orig.includes(qNorm) || st.includes(qNorm)) consider(m, 0.2);
   }
+  // Tier 4b — space-insensitive substring ("spiderman" ↔ "spider man"): 0.2.
+  const cq = qNorm.replace(/\s+/g, "");
+  if (cq.length >= 3) {
+    for (const m of filtered) {
+      const ct = normalizeTitle(m.title).replace(/\s+/g, "");
+      const co = normalizeTitle((m as any).original_title || "").replace(/\s+/g, "");
+      if (ct.includes(cq) || (co && co.includes(cq))) consider(m, 0.2);
+    }
+  }
   // Tier 5 — Fuse fuzzy with proper config (includeScore, shouldSort, distance).
   const fuse = new Fuse(filtered, {
     keys: [

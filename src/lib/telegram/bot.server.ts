@@ -287,7 +287,7 @@ function searchMovies(list: MovieRow[], query: string, filters: any = {}): Movie
     language: filters.language ?? null,
     quality: filters.quality ?? null,
     year: filters.year ?? null,
-    limit: 50,
+    limit: 100,
   });
 }
 

@@ -269,26 +269,15 @@ async function tempReply(ctx: Context, text: string, opts: any = {}) {
     console.error("[tempReply]", (e as Error).message);
     return null;
   });
-  
-  const isA = isAdmin(ctx.from?.id);
-  
-  // 🔒 SECURITY GATE: Admin ka text SMS group/DM se delete NAHI hoga
-  if (msg && ctx.chat?.id && !isA) {
-    const userMsgId = ctx.message?.message_id || 0;
-    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, userMsgId);
-  }
+  // Outgoing messages are auto-queued by the global API transformer in createBot().
   return msg;
 }
 
 async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
-  const isA = isAdmin(ctx.from?.id);
   const msg = await ctx.replyWithPhoto(photo, opts).catch((e) => {
     console.error("[tempPhoto]", (e as Error).message);
     return null;
   });
-  if (!isA && msg && ctx.chat?.id) {
-    await scheduleDelete(ctx.api, ctx.chat.id, msg.message_id, ctx.message?.message_id ?? 0);
-  }
   return msg;
 }
 

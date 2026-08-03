@@ -257,13 +257,6 @@ async function renderSearchResults(
   return {};
 }
 
-async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
-  const s = await getSettings();
-  if (!s.autodelete_status) return;
-  await enqueueDelete(chatId, msgIds, s.autodelete_timer).catch((e) =>
-    console.error("[scheduleDelete enqueue]", (e as Error).message));
-}
-
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const msg = await ctx.reply(text, opts).catch((e) => {
     console.error("[tempReply]", (e as Error).message);
@@ -621,7 +614,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
 }
 
 // ── bot factory ──
-export function createBot(tokenOverride?: string): Bot {
+export function createBot(tokenOverride?: string, botId: number | null = null): Bot {
   const bot = new Bot(tokenOverride ?? BOT_TOKEN());
 
   bot.catch((err) => {
@@ -646,17 +639,19 @@ export function createBot(tokenOverride?: string): Bot {
   bot.api.config.use(async (prev, method, payload, signal) => {
     const res = await prev(method, payload as any, signal);
     try {
-      if ((res as any).ok && AUTO_DELETE_METHODS.has(method as string)) {
+      if (AUTO_DELETE_METHODS.has(method as string)) {
         const chatId = Number((payload as any)?.chat_id);
         if (Number.isFinite(chatId)) {
           const s = await getSettings();
           const storage = Number(s.storage_channel_id);
           if (s.autodelete_status && chatId !== storage) {
-            const result: any = (res as any).result;
-            const ids = Array.isArray(result)
-              ? result.map((r: any) => r?.message_id)
-              : [result?.message_id];
-            await enqueueDelete(chatId, ids, s.autodelete_timer);
+            // grammY transformers can receive either Telegram's response envelope
+            // or the already-unwrapped result depending on the active API client.
+            const response: any = res as any;
+            const result: any = response?.ok === true ? response.result : response;
+            const values = Array.isArray(result) ? result : [result];
+            const ids = values.map((value: any) => value?.message_id);
+            await enqueueDelete(chatId, ids, s.autodelete_timer, botId);
           }
         }
       }
@@ -674,7 +669,7 @@ export function createBot(tokenOverride?: string): Bot {
       try {
         const s = await getSettings();
         if (s.autodelete_status && Number(chatId) !== Number(s.storage_channel_id)) {
-          await enqueueDelete(chatId, [msgId], s.autodelete_timer);
+          await enqueueDelete(chatId, [msgId], s.autodelete_timer, botId);
         }
       } catch (e) {
         console.error("[auto-delete incoming]", (e as Error).message);
@@ -754,14 +749,12 @@ export function createBot(tokenOverride?: string): Bot {
         ? "Pehle bot ko DM me *Start* karo."
         : "Pehle sab groups join karo.";
       const uname = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name ?? "user");
-      const reply = await ctx.reply(
+      await ctx.reply(
         `⚠️ ${uname}, ${reason}\n` +
         `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
         { parse_mode: "Markdown", reply_markup: startAndJoinKb(meName(ctx)) }
       ).catch(() => null);
-      if (reply && ctx.chat?.id) {
-        await scheduleDelete(ctx.api, ctx.chat.id, reply.message_id, ctx.message?.message_id ?? 0);
-      }
+      // Incoming middleware and outgoing API transformer queue both messages.
       return;
     }
 
@@ -821,8 +814,8 @@ export function createBot(tokenOverride?: string): Bot {
           `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
           `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
         try {
-          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
-          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+          await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
+          // Outgoing API transformer queues the delivered file.
         } catch (e) {
           await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
         }
@@ -1962,8 +1955,8 @@ export function createBot(tokenOverride?: string): Bot {
         if (inGroup) {
           // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
           try {
-            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
-            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+            // Outgoing API transformer queues the delivered file.
             await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
           } catch (dmErr) {
             // User hasn't started the bot → deep-link them
@@ -1979,8 +1972,8 @@ export function createBot(tokenOverride?: string): Bot {
         }
 
         // Private chat — deliver directly
-        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
-        if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+        // Outgoing API transformer queues the delivered file.
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
         const err = e as any;

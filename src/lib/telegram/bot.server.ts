@@ -749,7 +749,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         ? "Pehle bot ko DM me *Start* karo."
         : "Pehle sab groups join karo.";
       const uname = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name ?? "user");
-      const reply = await ctx.reply(
+      await ctx.reply(
         `⚠️ ${uname}, ${reason}\n` +
         `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
         { parse_mode: "Markdown", reply_markup: startAndJoinKb(meName(ctx)) }
@@ -814,7 +814,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
           `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
         try {
-          const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
+          await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
           // Outgoing API transformer queues the delivered file.
         } catch (e) {
           await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
@@ -1955,7 +1955,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         if (inGroup) {
           // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
           try {
-            const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+            await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
             // Outgoing API transformer queues the delivered file.
             await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
           } catch (dmErr) {
@@ -1972,7 +1972,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         }
 
         // Private chat — deliver directly
-        const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+        await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
         // Outgoing API transformer queues the delivered file.
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {

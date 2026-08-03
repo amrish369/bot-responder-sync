@@ -13,7 +13,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
         try { candidates.push(process.env.BOT_TOKEN!); } catch { /* ignore */ }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: active } = await supabaseAdmin
-          .from("bot_tokens").select("token").eq("is_active", true).eq("enabled", true).maybeSingle();
+          .from("bot_tokens").select("id,token").eq("is_active", true).eq("enabled", true).maybeSingle();
         if (active?.token) candidates.push((active as any).token as string);
 
         let token: string | null = null;
@@ -21,7 +21,8 @@ export const Route = createFileRoute("/api/public/telegram/webhook")({
           if ((await webhookSecret(c)) === got) { token = c; break; }
         }
         if (!token) return new Response("Unauthorized", { status: 401 });
-        const bot = createBot(token);
+        const activeBotId = active?.token === token ? Number(active.id) : null;
+        const bot = createBot(token, Number.isFinite(activeBotId) ? activeBotId : null);
         await bot.init();
         const handler = webhookCallback(bot, "std/http");
         try {

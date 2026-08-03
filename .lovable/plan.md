@@ -1,28 +1,39 @@
-## 1. Auto-delete: har message delete ho (text, photo, video, document, admin ke bhi)
+## Auto-delete fix plan
 
-Abhi kya ho raha hai (verified in `src/lib/telegram/bot.server.ts`):
-- Sirf `tempReply` (line 267) aur `tempPhoto` (line 283) se bheje messages queue hote hain.
-- In dono me explicit gate hai: `if (!isAdmin(ctx.from?.id))` — yaani admin se related koi message delete hi nahi hota.
-- Baaki ~60 jagah seedha `ctx.reply(...)` hai (commands, errors, /pending, /search, broadcast confirmations) aur file delivery `copyMessage` (line 113) — inme se koi bhi delete queue me nahi jaata.
+Current checks confirm:
+- Auto-delete is enabled with a 180-second timer.
+- The queue runner cron executes every minute and receives HTTP 200.
+- The queue is currently empty, so messages are not being reliably queued.
+- Multi-bot webhook routes create a bot using its token, but queue rows are written with `bot_id = null`; deletion can therefore run with the wrong bot token.
+- The outgoing grammY API transformer treats its returned message as a raw `{ ok, result }` response, so sent text/files/videos are not consistently detected and queued.
 
-Fix:
-- `createBot()` me grammY **API transformer** lagana: bot jo bhi bheje (`sendMessage`, `sendPhoto`, `sendVideo`, `sendDocument`, `copyMessage`, `sendMediaGroup`, `sendAnimation`, `sendAudio`), response ka `message_id` automatically `delete_queue` me enqueue ho jaye. Isse har outgoing message cover hoga — koi call site chhutega nahi.
-- Har incoming user/admin message bhi ek global middleware se enqueue ho (private chat + group dono), taaki user ka apna search text bhi 3 min baad hat jaye.
-- Admin exemption hata dena (`isAdmin` gate `tempReply`/`tempPhoto` se remove) — user ne kaha admin ke messages bhi delete ho.
-- Exclusions jo zaroori hain (warna bot toot jayega): storage channel me upload/copy kiye gaye files (wo permanent rehne chahiye, warna file_id dead ho jayegi), aur broadcast/promotion ke messages optional — inhe transformer me chat-id check se skip karenge.
-- Timer: `bot_settings.autodelete_timer` (admin panel se 180s). Cron `run-delete-queue` pehle se har minute chalta hai; drain limit 200 se badha kar 500 karenge kyunki ab volume zyada hoga.
+### Implementation
+1. **Carry bot identity through the full flow**
+   - Change `createBot` to accept the database bot ID.
+   - Pass that ID from `/telegram/webhook/$botId`.
+   - Resolve the active bot ID for the legacy webhook route.
+   - Store the correct `bot_id` on every incoming and outgoing delete-queue row.
 
-## 2. Search: sirf usi naam ki files dikhe
+2. **Fix outgoing message capture**
+   - Read grammY transformer results in their actual shape for `sendMessage`, photos, videos, documents, audio, stickers, forwarded/copied messages, and media groups.
+   - Queue every returned `message_id`, while continuing to exclude only the configured storage channel.
 
-Abhi `searchMovies` → `smartSearch` (limit 50) me Tier-5 Fuse fuzzy ke results bhi shaamil ho jaate hain, isliye "War" search par War, Warrior, Warfare jaise alag movies mil jaati hain.
+3. **Fix incoming deletion coverage**
+   - Queue user and admin messages in private chats, groups, and supergroups.
+   - Cover regular and edited messages without blocking bot command processing.
+   - Keep the configured 3-minute timer for both incoming and outgoing messages.
 
-Fix (`src/lib/telegram/search.server.ts`):
-- Do buckets banayenge: **strong** (exact title / normalized exact / alias exact / title starts-with ya contains full query) aur **weak** (sirf Fuse fuzzy).
-- Agar strong bucket me ek bhi row hai → sirf strong rows return honge, aur unme se bhi sirf wahi jinka normalized title top match ke title ke barabar hai. Result: ek hi movie ke saare quality/language variants (jitni files DB me hain, sab) dikhengi, doosri movie ki entry nahi.
-- Agar strong bucket khaali hai → tabhi fuzzy fallback (existing "similar mila" suggestion list) chalega, jaisa abhi hai.
-- Pagination/`send_<id>` buttons aur bottom TMDB request button waise hi rahenge.
+4. **Harden the queue runner**
+   - Use the row’s exact bot token for deletion.
+   - Do not silently discard rows when the bot identity/token is temporarily unavailable.
+   - Record Telegram error codes/descriptions, retry transient errors, and remove only successful or genuinely non-retryable rows.
+   - Process rows independently so one failure cannot stop the batch.
 
-## Technical notes
-- Files: `src/lib/telegram/bot.server.ts` (transformer + middleware + admin gate), `src/lib/telegram/search.server.ts` (title-locked filtering), `src/lib/telegram/delete-queue.server.ts` (bot_id pass karna), `src/routes/api/public/hooks/run-delete-queue.ts` (limit).
-- Koi DB migration nahi chahiye — `delete_queue`, `bot_settings` aur cron pehle se maujood hain.
-- Publish karna zaroori hai taaki live worker par naya behaviour chale.
+5. **Add focused tests and production verification**
+   - Test queue creation for private/group incoming messages and all outgoing media types.
+   - Test correct token selection with multiple bots.
+   - Test retries and fatal Telegram responses.
+   - Verify the live queue receives rows, the scheduled runner consumes them, and messages disappear from both a personal chat and a group after the configured delay.
+
+### Telegram constraint
+Group deletion requires that the specific bot handling that group is an admin with permission to delete messages. The fix will report this permission failure clearly instead of silently losing the queue item.

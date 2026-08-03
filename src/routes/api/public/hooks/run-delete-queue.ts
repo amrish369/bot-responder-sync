@@ -13,13 +13,36 @@ async function tokenForBot(botId: number | null): Promise<string | null> {
 }
 
 async function deleteOne(token: string, chatId: number, messageId: number) {
-  const res = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
-  });
-  const j = await res.json().catch(() => ({}));
-  return { ok: !!j.ok, desc: (j.description as string) || null };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+    const j = await res.json().catch(() => ({}));
+    return {
+      ok: res.ok && !!j.ok,
+      code: Number(j.error_code ?? res.status),
+      desc: (j.description as string) || `HTTP ${res.status}`,
+    };
+  } catch (error) {
+    return { ok: false, code: 0, desc: (error as Error).message || "Network error" };
+  }
+}
+
+async function retryOrDrop(row: any, error: string, fatal = false) {
+  const attempts = Number(row.attempts ?? 0) + 1;
+  if (fatal || attempts >= 5) {
+    await supabaseAdmin.from("delete_queue").delete().eq("id", row.id);
+    return "dropped" as const;
+  }
+  const backoffSeconds = Math.min(300, 30 * attempts);
+  await supabaseAdmin.from("delete_queue").update({
+    attempts,
+    last_error: error.slice(0, 1000),
+    delete_at: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
+  }).eq("id", row.id);
+  return "retried" as const;
 }
 
 async function runOnce(limit = 500) {
@@ -31,33 +54,33 @@ async function runOnce(limit = 500) {
     .limit(limit);
   if (error) return { error: error.message, processed: 0, deleted: 0, dropped: 0 };
 
-  let deleted = 0, dropped = 0;
+  let deleted = 0, dropped = 0, retried = 0;
   for (const row of rows ?? []) {
     const r: any = row;
-    const token = await tokenForBot(r.bot_id ?? null);
-    if (!token) {
-      await supabaseAdmin.from("delete_queue").delete().eq("id", r.id);
-      dropped++;
-      continue;
-    }
-    const { ok, desc } = await deleteOne(token, Number(r.chat_id), Number(r.message_id));
-    const fatal = !ok && desc && /not found|message can'?t be deleted|message to delete not found|bot was kicked|chat not found/i.test(desc);
-    if (ok || fatal) {
-      await supabaseAdmin.from("delete_queue").delete().eq("id", r.id);
-      if (ok) deleted++; else dropped++;
-    } else {
-      const attempts = (r.attempts ?? 0) + 1;
-      if (attempts >= 5) {
-        await supabaseAdmin.from("delete_queue").delete().eq("id", r.id);
-        dropped++;
-      } else {
-        await supabaseAdmin.from("delete_queue").update({
-          attempts, last_error: desc, delete_at: new Date(Date.now() + 60_000).toISOString(),
-        }).eq("id", r.id);
+    try {
+      const token = await tokenForBot(r.bot_id ?? null);
+      if (!token) {
+        const outcome = await retryOrDrop(r, `Bot token unavailable for bot_id=${r.bot_id ?? "legacy"}`);
+        if (outcome === "dropped") dropped++; else retried++;
+        continue;
       }
+      const { ok, code, desc } = await deleteOne(token, Number(r.chat_id), Number(r.message_id));
+      const error = `[${code}] ${desc}`;
+      const alreadyGone = !ok && /message to delete not found|message not found/i.test(desc);
+      const fatal = !ok && /message can'?t be deleted|bot was kicked|chat not found|not enough rights|need administrator rights/i.test(desc);
+      if (ok || alreadyGone) {
+        await supabaseAdmin.from("delete_queue").delete().eq("id", r.id);
+        if (ok) deleted++; else dropped++;
+      } else {
+        const outcome = await retryOrDrop(r, error, fatal);
+        if (outcome === "dropped") dropped++; else retried++;
+      }
+    } catch (error) {
+      const outcome = await retryOrDrop(r, (error as Error).message || "Unexpected queue error");
+      if (outcome === "dropped") dropped++; else retried++;
     }
   }
-  return { processed: (rows ?? []).length, deleted, dropped };
+  return { processed: (rows ?? []).length, deleted, dropped, retried };
 }
 
 export const Route = createFileRoute("/api/public/hooks/run-delete-queue")({

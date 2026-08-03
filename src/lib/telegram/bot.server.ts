@@ -257,13 +257,6 @@ async function renderSearchResults(
   return {};
 }
 
-async function scheduleDelete(api: any, chatId: number, ...msgIds: number[]) {
-  const s = await getSettings();
-  if (!s.autodelete_status) return;
-  await enqueueDelete(chatId, msgIds, s.autodelete_timer).catch((e) =>
-    console.error("[scheduleDelete enqueue]", (e as Error).message));
-}
-
 async function tempReply(ctx: Context, text: string, opts: any = {}) {
   const msg = await ctx.reply(text, opts).catch((e) => {
     console.error("[tempReply]", (e as Error).message);
@@ -761,9 +754,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
         { parse_mode: "Markdown", reply_markup: startAndJoinKb(meName(ctx)) }
       ).catch(() => null);
-      if (reply && ctx.chat?.id) {
-        await scheduleDelete(ctx.api, ctx.chat.id, reply.message_id, ctx.message?.message_id ?? 0);
-      }
+      // Incoming middleware and outgoing API transformer queue both messages.
       return;
     }
 
@@ -824,7 +815,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
         try {
           const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
-          if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+          // Outgoing API transformer queues the delivered file.
         } catch (e) {
           await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
         }
@@ -1965,7 +1956,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
           try {
             const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
-            if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+            // Outgoing API transformer queues the delivered file.
             await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
           } catch (dmErr) {
             // User hasn't started the bot → deep-link them
@@ -1982,7 +1973,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
 
         // Private chat — deliver directly
         const sent = await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
-        if (sent) await scheduleDelete(ctx.api, uid, sent.message_id, 0);
+        // Outgoing API transformer queues the delivered file.
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
         const err = e as any;

@@ -621,7 +621,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
 }
 
 // ── bot factory ──
-export function createBot(tokenOverride?: string): Bot {
+export function createBot(tokenOverride?: string, botId: number | null = null): Bot {
   const bot = new Bot(tokenOverride ?? BOT_TOKEN());
 
   bot.catch((err) => {
@@ -646,17 +646,19 @@ export function createBot(tokenOverride?: string): Bot {
   bot.api.config.use(async (prev, method, payload, signal) => {
     const res = await prev(method, payload as any, signal);
     try {
-      if ((res as any).ok && AUTO_DELETE_METHODS.has(method as string)) {
+      if (AUTO_DELETE_METHODS.has(method as string)) {
         const chatId = Number((payload as any)?.chat_id);
         if (Number.isFinite(chatId)) {
           const s = await getSettings();
           const storage = Number(s.storage_channel_id);
           if (s.autodelete_status && chatId !== storage) {
-            const result: any = (res as any).result;
-            const ids = Array.isArray(result)
-              ? result.map((r: any) => r?.message_id)
-              : [result?.message_id];
-            await enqueueDelete(chatId, ids, s.autodelete_timer);
+            // grammY transformers can receive either Telegram's response envelope
+            // or the already-unwrapped result depending on the active API client.
+            const response: any = res as any;
+            const result: any = response?.ok === true ? response.result : response;
+            const values = Array.isArray(result) ? result : [result];
+            const ids = values.map((value: any) => value?.message_id);
+            await enqueueDelete(chatId, ids, s.autodelete_timer, botId);
           }
         }
       }
@@ -674,7 +676,7 @@ export function createBot(tokenOverride?: string): Bot {
       try {
         const s = await getSettings();
         if (s.autodelete_status && Number(chatId) !== Number(s.storage_channel_id)) {
-          await enqueueDelete(chatId, [msgId], s.autodelete_timer);
+          await enqueueDelete(chatId, [msgId], s.autodelete_timer, botId);
         }
       } catch (e) {
         console.error("[auto-delete incoming]", (e as Error).message);

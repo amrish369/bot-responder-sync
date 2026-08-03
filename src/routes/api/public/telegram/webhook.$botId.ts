@@ -26,7 +26,7 @@ export const Route = createFileRoute("/api/public/telegram/webhook/$botId")({
         const got = request.headers.get("x-telegram-bot-api-secret-token") || "";
         if (got !== expected) return new Response("Unauthorized", { status: 401 });
 
-        const bot = createBot(token);
+        const bot = createBot(token, botId);
         await bot.init();
         const handler = webhookCallback(bot, "std/http");
         try {

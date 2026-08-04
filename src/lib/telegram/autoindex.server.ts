@@ -90,7 +90,7 @@ export async function indexChannelPost(msg: any, isEdit = false): Promise<IndexR
     aliases,
   } as any);
 
-  const row: Record<string, unknown> = {
+  const row: any = {
     title,
     file_id: file.file_id,
     file_kind: file.file_kind,

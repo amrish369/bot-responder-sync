@@ -260,10 +260,53 @@ export type Database = {
         }
         Relationships: []
       }
+      group_membership: {
+        Row: {
+          backup_joined: boolean
+          blocked: boolean
+          channel_joined: boolean
+          last_checked: string | null
+          last_error: string | null
+          last_invited: string | null
+          last_reminded: string | null
+          main_joined: boolean
+          reminder_count: number
+          telegram_id: number
+          updated_at: string
+        }
+        Insert: {
+          backup_joined?: boolean
+          blocked?: boolean
+          channel_joined?: boolean
+          last_checked?: string | null
+          last_error?: string | null
+          last_invited?: string | null
+          last_reminded?: string | null
+          main_joined?: boolean
+          reminder_count?: number
+          telegram_id: number
+          updated_at?: string
+        }
+        Update: {
+          backup_joined?: boolean
+          blocked?: boolean
+          channel_joined?: boolean
+          last_checked?: string | null
+          last_error?: string | null
+          last_invited?: string | null
+          last_reminded?: string | null
+          main_joined?: boolean
+          reminder_count?: number
+          telegram_id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       movies: {
         Row: {
           added_by: number | null
           aliases: string[] | null
+          auto_indexed: boolean
           backdrop_url: string | null
           created_at: string
           file_id: string
@@ -291,6 +334,7 @@ export type Database = {
         Insert: {
           added_by?: number | null
           aliases?: string[] | null
+          auto_indexed?: boolean
           backdrop_url?: string | null
           created_at?: string
           file_id: string
@@ -318,6 +362,7 @@ export type Database = {
         Update: {
           added_by?: number | null
           aliases?: string[] | null
+          auto_indexed?: boolean
           backdrop_url?: string | null
           created_at?: string
           file_id?: string

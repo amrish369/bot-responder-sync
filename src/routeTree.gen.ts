@@ -28,6 +28,7 @@ import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/publi
 import { Route as ApiPublicTelegramRegisterRouteImport } from './routes/api/public/telegram/register'
 import { Route as ApiPublicHooksTmdbBackfillRouteImport } from './routes/api/public/hooks/tmdb-backfill'
 import { Route as ApiPublicHooksRunDeleteQueueRouteImport } from './routes/api/public/hooks/run-delete-queue'
+import { Route as ApiPublicHooksGroupInviteRemindersRouteImport } from './routes/api/public/hooks/group-invite-reminders'
 import { Route as ApiPublicHooksCleanupPayloadsRouteImport } from './routes/api/public/hooks/cleanup-payloads'
 import { Route as ApiPublicTelegramWebhookBotIdRouteImport } from './routes/api/public/telegram/webhook.$botId'
 
@@ -137,6 +138,12 @@ const ApiPublicHooksRunDeleteQueueRoute =
     path: '/api/public/hooks/run-delete-queue',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksGroupInviteRemindersRoute =
+  ApiPublicHooksGroupInviteRemindersRouteImport.update({
+    id: '/api/public/hooks/group-invite-reminders',
+    path: '/api/public/hooks/group-invite-reminders',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksCleanupPayloadsRoute =
   ApiPublicHooksCleanupPayloadsRouteImport.update({
     id: '/api/public/hooks/cleanup-payloads',
@@ -166,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
@@ -188,6 +196,7 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
@@ -212,6 +221,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
   '/api/public/telegram/register': typeof ApiPublicTelegramRegisterRoute
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin/'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
@@ -258,6 +269,7 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/admin'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
@@ -281,6 +293,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
     | '/api/public/telegram/register'
@@ -297,6 +310,7 @@ export interface RootRouteChildren {
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicHooksCleanupPayloadsRoute: typeof ApiPublicHooksCleanupPayloadsRoute
+  ApiPublicHooksGroupInviteRemindersRoute: typeof ApiPublicHooksGroupInviteRemindersRoute
   ApiPublicHooksRunDeleteQueueRoute: typeof ApiPublicHooksRunDeleteQueueRoute
   ApiPublicHooksTmdbBackfillRoute: typeof ApiPublicHooksTmdbBackfillRoute
   ApiPublicTelegramRegisterRoute: typeof ApiPublicTelegramRegisterRoute
@@ -438,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksRunDeleteQueueRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/group-invite-reminders': {
+      id: '/api/public/hooks/group-invite-reminders'
+      path: '/api/public/hooks/group-invite-reminders'
+      fullPath: '/api/public/hooks/group-invite-reminders'
+      preLoaderRoute: typeof ApiPublicHooksGroupInviteRemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/cleanup-payloads': {
       id: '/api/public/hooks/cleanup-payloads'
       path: '/api/public/hooks/cleanup-payloads'
@@ -504,6 +525,8 @@ const rootRouteChildren: RootRouteChildren = {
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicHooksCleanupPayloadsRoute: ApiPublicHooksCleanupPayloadsRoute,
+  ApiPublicHooksGroupInviteRemindersRoute:
+    ApiPublicHooksGroupInviteRemindersRoute,
   ApiPublicHooksRunDeleteQueueRoute: ApiPublicHooksRunDeleteQueueRoute,
   ApiPublicHooksTmdbBackfillRoute: ApiPublicHooksTmdbBackfillRoute,
   ApiPublicTelegramRegisterRoute: ApiPublicTelegramRegisterRoute,

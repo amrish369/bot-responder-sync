@@ -61,6 +61,7 @@ export async function syncBotWebhook(
         allowed_updates: [
           "message", "edited_message", "callback_query",
           "chat_join_request", "my_chat_member", "chat_member",
+          "channel_post", "edited_channel_post",
         ],
         drop_pending_updates: dropPending,
       }),

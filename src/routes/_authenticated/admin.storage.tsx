@@ -1,18 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getStorageHealth } from "@/lib/admin/admin.functions";
+import { getStorageHealth, getAutoIndexInfo, setAutoIndex } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/storage")({ component: StoragePage });
 
 function StoragePage() {
   const get = useServerFn(getStorageHealth);
+  const getIdx = useServerFn(getAutoIndexInfo);
+  const toggleIdx = useServerFn(setAutoIndex);
+  const qc = useQueryClient();
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin", "storage"], queryFn: () => get(),
   });
+  const { data: idx } = useQuery({ queryKey: ["admin", "autoindex"], queryFn: () => getIdx() });
 
   if (isLoading) return <div className="text-muted-foreground">Loading…</div>;
   const d: any = data;
@@ -44,6 +50,45 @@ function StoragePage() {
           <div className="text-lg">{d?.delete_queue_size}</div>
         </Card>
       </div>
+
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-semibold">Auto-index channel files</h2>
+            <p className="text-xs text-muted-foreground mt-1 max-w-md">
+              ON hone par storage channel me post ki gayi har video/document apne aap
+              parse hokar database me add ho jati hai (title, year, language, quality,
+              file size + TMDB verification).
+            </p>
+          </div>
+          <Switch
+            checked={!!idx?.auto_index}
+            onCheckedChange={async (v) => {
+              await toggleIdx({ data: { enabled: v } });
+              toast.success(v ? "Auto-index ON" : "Auto-index OFF");
+              qc.invalidateQueries({ queryKey: ["admin", "autoindex"] });
+            }}
+          />
+        </div>
+        <div className="mt-4 space-y-1 max-h-72 overflow-auto text-sm">
+          {(idx?.recent ?? []).length === 0 && (
+            <div className="text-muted-foreground">Abhi tak koi file auto-index nahi hui.</div>
+          )}
+          {(idx?.recent ?? []).map((m: any) => (
+            <div key={m.id} className="flex justify-between gap-2 border-b py-1 last:border-0">
+              <div className="truncate">
+                <span className="font-medium">{m.title}</span>{" "}
+                <span className="text-muted-foreground text-xs">
+                  {m.year ?? "—"} · {m.language ?? "—"} · {m.quality ?? "—"} · {m.size ?? "—"}
+                </span>
+              </div>
+              <div className="text-xs shrink-0 text-muted-foreground">
+                {m.tmdb_verified ? "TMDB ✓" : "unverified"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       <Card className="p-5">
         <h2 className="font-semibold mb-3">Per-bot storage access</h2>

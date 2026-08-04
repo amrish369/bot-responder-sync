@@ -1,18 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getStorageHealth } from "@/lib/admin/admin.functions";
+import { getStorageHealth, getAutoIndexInfo, setAutoIndex } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/storage")({ component: StoragePage });
 
 function StoragePage() {
   const get = useServerFn(getStorageHealth);
+  const getIdx = useServerFn(getAutoIndexInfo);
+  const toggleIdx = useServerFn(setAutoIndex);
+  const qc = useQueryClient();
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin", "storage"], queryFn: () => get(),
   });
+  const { data: idx } = useQuery({ queryKey: ["admin", "autoindex"], queryFn: () => getIdx() });
 
   if (isLoading) return <div className="text-muted-foreground">Loading…</div>;
   const d: any = data;

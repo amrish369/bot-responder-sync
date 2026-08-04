@@ -1025,6 +1025,38 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
   }
 
   // ─── ADMIN COMMANDS ───
+  bot.command("autoindex", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const arg = (ctx.message?.text ?? "").replace("/autoindex", "").trim().toLowerCase();
+    const s = await getSettings(true);
+    if (arg !== "on" && arg !== "off") {
+      return ctx.reply(
+        `🗂️ Auto-index: *${s.auto_index ? "ON" : "OFF"}*\n` +
+        `Storage channel: \`${s.storage_channel_id}\`\n\n` +
+        `Usage: \`/autoindex on\` ya \`/autoindex off\`\n` +
+        `ON hone par storage channel me post ki gayi har file khud DB me add ho jayegi.`,
+        { parse_mode: "Markdown" },
+      );
+    }
+    await setSetting("auto_index", arg === "on");
+    return ctx.reply(`✅ Auto-index ab *${arg.toUpperCase()}* hai.`, { parse_mode: "Markdown" });
+  });
+
+  bot.command("inviteall", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const mode = (ctx.message?.text ?? "").toLowerCase().includes("remind") ? "remind" : "invite";
+    await ctx.reply(`📣 ${mode === "remind" ? "Reminder" : "Invite"} campaign start ho raha hai…`);
+    const { runInviteCampaign } = await import("./growth.server");
+    const r = await runInviteCampaign(mode as "invite" | "remind");
+    return ctx.reply(
+      `📣 *Campaign Report*\n\n` +
+      `👥 Target: ${r.total}\n✅ Sent: ${r.sent}\n❌ Failed: ${r.failed}\n` +
+      `🚫 Blocked: ${r.blocked}\n⏭️ Skipped: ${r.skipped}` +
+      (r.errors.length ? `\n\n⚠️ ${escapeMarkdown(r.errors.slice(0, 3).join(" | "))}` : ""),
+      { parse_mode: "Markdown" },
+    );
+  });
+
   bot.command("stats", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const movies = await fetchAllMovies();

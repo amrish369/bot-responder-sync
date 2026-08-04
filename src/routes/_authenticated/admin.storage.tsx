@@ -53,6 +53,7 @@ function StoragePage() {
 
       <Card className="p-5">
         <h2 className="font-semibold mb-3">Per-bot storage access</h2>
+        <div className="hidden" />
         <div className="space-y-2">
           {(d?.bots ?? []).map((b: any) => (
             <div key={b.id} className="flex items-center gap-3 border-b last:border-0 pb-2">

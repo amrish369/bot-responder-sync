@@ -539,6 +539,55 @@ export const getStorageHealth = createServerFn({ method: "GET" })
   });
 
 // ─── Settings CRUD ─────────────────────────────────────────
+// ─── Auto-index + Growth ───────────────────────────────────
+export const getAutoIndexInfo = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { getSettings } = await import("@/lib/telegram/settings.server");
+    const { recentAutoIndexed } = await import("@/lib/telegram/autoindex.server");
+    const s = await getSettings(true);
+    return {
+      auto_index: s.auto_index,
+      storage_channel_id: s.storage_channel_id,
+      recent: await recentAutoIndexed(20),
+    };
+  });
+
+export const setAutoIndex = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { enabled: boolean }) => z.object({ enabled: z.boolean() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { setSetting } = await import("@/lib/telegram/settings.server");
+    const { logActivity } = await import("./admin.server");
+    await setSetting("auto_index", data.enabled);
+    await logActivity(email, "set_auto_index", { enabled: data.enabled });
+    return { ok: true, enabled: data.enabled };
+  });
+
+export const getGrowthStats = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { growthStats, listPendingMembers } = await import("@/lib/telegram/growth.server");
+    const [stats, pending] = await Promise.all([growthStats(), listPendingMembers(50)]);
+    return { ...stats, pendingUsers: pending };
+  });
+
+export const runGroupCampaign = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { mode: "invite" | "remind" }) =>
+    z.object({ mode: z.enum(["invite", "remind"]) }).parse(d))
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { runInviteCampaign } = await import("@/lib/telegram/growth.server");
+    const { logActivity } = await import("./admin.server");
+    const result = await runInviteCampaign(data.mode);
+    await logActivity(email, `group_campaign_${data.mode}`, result as any);
+    return result;
+  });
+
 export const getBotSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {

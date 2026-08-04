@@ -678,6 +678,46 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     return next();
   });
 
+  // ── Auto-index: storage channel me post hui har file khud DB me ─────
+  const autoIndexPost = async (msg: any, isEdit: boolean) => {
+    try {
+      const { indexChannelPost } = await import("./autoindex.server");
+      const r = await indexChannelPost(msg, isEdit);
+      if (r.status === "skipped") return;
+      if (r.status === "error") {
+        console.error("[autoindex]", r.reason);
+      } else {
+        console.log(`[autoindex] ${r.status} #${r.id} ${r.title}`);
+        await supabaseAdmin.from("activity_logs").insert({
+          admin_email: "bot:autoindex",
+          action: `autoindex_${r.status}`,
+          details: { id: r.id, title: r.title, quality: r.quality, size: r.size } as any,
+        });
+      }
+      const admin = PRIMARY_ADMIN();
+      if (admin) {
+        const text = r.status === "error"
+          ? `⚠️ Auto-index fail: ${r.reason}`
+          : `🗂️ Auto-index ${r.status}\n🎬 ${r.title}\n📺 ${r.quality || "N/A"}${r.size ? ` | 💾 ${r.size}` : ""}\n🆔 ${r.id}`;
+        await bot.api.sendMessage(admin, text).catch(() => {});
+      }
+    } catch (e) {
+      console.error("[autoindex handler]", (e as Error).message);
+    }
+  };
+  bot.on("channel_post", async (ctx) => { await autoIndexPost(ctx.channelPost, false); });
+  bot.on("edited_channel_post", async (ctx) => { await autoIndexPost(ctx.editedChannelPost, true); });
+
+  // ── Group/channel membership tracking (real-time) ───────────────────
+  bot.on("chat_member", async (ctx) => {
+    try {
+      const { trackChatMemberUpdate } = await import("./growth.server");
+      await trackChatMemberUpdate(ctx.update.chat_member);
+    } catch (e) {
+      console.error("[chat_member track]", (e as Error).message);
+    }
+  });
+
   bot.on("chat_join_request", async (ctx) => {
     try {
       await ctx.approveChatJoinRequest(ctx.from.id);
@@ -985,6 +1025,38 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
   }
 
   // ─── ADMIN COMMANDS ───
+  bot.command("autoindex", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const arg = (ctx.message?.text ?? "").replace("/autoindex", "").trim().toLowerCase();
+    const s = await getSettings(true);
+    if (arg !== "on" && arg !== "off") {
+      return ctx.reply(
+        `🗂️ Auto-index: *${s.auto_index ? "ON" : "OFF"}*\n` +
+        `Storage channel: \`${s.storage_channel_id}\`\n\n` +
+        `Usage: \`/autoindex on\` ya \`/autoindex off\`\n` +
+        `ON hone par storage channel me post ki gayi har file khud DB me add ho jayegi.`,
+        { parse_mode: "Markdown" },
+      );
+    }
+    await setSetting("auto_index", arg === "on");
+    return ctx.reply(`✅ Auto-index ab *${arg.toUpperCase()}* hai.`, { parse_mode: "Markdown" });
+  });
+
+  bot.command("inviteall", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const mode = (ctx.message?.text ?? "").toLowerCase().includes("remind") ? "remind" : "invite";
+    await ctx.reply(`📣 ${mode === "remind" ? "Reminder" : "Invite"} campaign start ho raha hai…`);
+    const { runInviteCampaign } = await import("./growth.server");
+    const r = await runInviteCampaign(mode as "invite" | "remind");
+    return ctx.reply(
+      `📣 *Campaign Report*\n\n` +
+      `👥 Target: ${r.total}\n✅ Sent: ${r.sent}\n❌ Failed: ${r.failed}\n` +
+      `🚫 Blocked: ${r.blocked}\n⏭️ Skipped: ${r.skipped}` +
+      (r.errors.length ? `\n\n⚠️ ${escapeMarkdown(r.errors.slice(0, 3).join(" | "))}` : ""),
+      { parse_mode: "Markdown" },
+    );
+  });
+
   bot.command("stats", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
     const movies = await fetchAllMovies();

@@ -14,6 +14,7 @@ export interface BotSettings {
   main_group_link: string | null;     // https URL or @username
   backup_group_link: string | null;   // https URL or @username
   storage_channel_id: number;         // -100... channel id for movie file storage
+  auto_index: boolean;                // auto-index files posted in storage channel
 }
 
 const DEFAULTS: BotSettings = {
@@ -24,6 +25,7 @@ const DEFAULTS: BotSettings = {
   main_group_link: null,
   backup_group_link: null,
   storage_channel_id: -1004299446417,
+  auto_index: true,
 };
 
 let cache: { at: number; data: BotSettings } | null = null;

@@ -52,8 +52,46 @@ function StoragePage() {
       </div>
 
       <Card className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-semibold">Auto-index channel files</h2>
+            <p className="text-xs text-muted-foreground mt-1 max-w-md">
+              ON hone par storage channel me post ki gayi har video/document apne aap
+              parse hokar database me add ho jati hai (title, year, language, quality,
+              file size + TMDB verification).
+            </p>
+          </div>
+          <Switch
+            checked={!!idx?.auto_index}
+            onCheckedChange={async (v) => {
+              await toggleIdx({ data: { enabled: v } });
+              toast.success(v ? "Auto-index ON" : "Auto-index OFF");
+              qc.invalidateQueries({ queryKey: ["admin", "autoindex"] });
+            }}
+          />
+        </div>
+        <div className="mt-4 space-y-1 max-h-72 overflow-auto text-sm">
+          {(idx?.recent ?? []).length === 0 && (
+            <div className="text-muted-foreground">Abhi tak koi file auto-index nahi hui.</div>
+          )}
+          {(idx?.recent ?? []).map((m: any) => (
+            <div key={m.id} className="flex justify-between gap-2 border-b py-1 last:border-0">
+              <div className="truncate">
+                <span className="font-medium">{m.title}</span>{" "}
+                <span className="text-muted-foreground text-xs">
+                  {m.year ?? "—"} · {m.language ?? "—"} · {m.quality ?? "—"} · {m.size ?? "—"}
+                </span>
+              </div>
+              <div className="text-xs shrink-0 text-muted-foreground">
+                {m.tmdb_verified ? "TMDB ✓" : "unverified"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-5">
         <h2 className="font-semibold mb-3">Per-bot storage access</h2>
-        <div className="hidden" />
         <div className="space-y-2">
           {(d?.bots ?? []).map((b: any) => (
             <div key={b.id} className="flex items-center gap-3 border-b last:border-0 pb-2">

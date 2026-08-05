@@ -362,10 +362,6 @@ async function gateLabels(bot: Bot, userId: number, fresh = false) {
   return { st, labels: missingLabels(st) };
 }
 
-async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  return (await gateStatus(bot, userId)).ok;
-}
-
 /** Username of the bot that is currently handling the update (multi-bot safe). */
 function meName(ctx: any): string {
   return ctx?.me?.username || BOT_USERNAME();

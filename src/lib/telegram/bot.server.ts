@@ -796,6 +796,11 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     const uid = ctx.from!.id;
     const chatType = ctx.chat?.type;
     await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
+    if (chatType === "private") {
+      import("./growth.server")
+        .then(({ upsertMembership }) => upsertMembership(uid, { started: true }))
+        .catch(() => {});
+    }
     if (chatType !== "private") {
       const kb = new InlineKeyboard()
         .url("🤖 Bot DM Mein Start Karein", `https://t.me/${meName(ctx)}?start=from_group`);

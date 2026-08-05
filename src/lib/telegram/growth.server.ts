@@ -135,7 +135,7 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
     .from("tg_users").select("telegram_id").limit(20000);
   const { data: members } = await supabaseAdmin
     .from("group_membership")
-    .select("telegram_id,main_joined,blocked,last_reminded,reminder_count")
+    .select("telegram_id,started,main_joined,backup_joined,channel_joined,blocked,last_reminded,reminder_count")
     .limit(20000);
   const byId = new Map<number, any>((members ?? []).map((m: any) => [Number(m.telegram_id), m]));
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -145,19 +145,26 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
     const id = Number(u.telegram_id);
     const m = byId.get(id);
     if (m?.blocked) { out.blocked++; continue; }
+    const fullyJoined = !!(m?.started && m?.main_joined && m?.backup_joined);
+    if (fullyJoined) { out.skipped++; continue; }
     if (mode === "remind") {
-      if (m?.main_joined) { out.skipped++; continue; }
       if ((m?.reminder_count ?? 0) >= 3) { out.skipped++; continue; }
       if (m?.last_reminded && new Date(m.last_reminded).getTime() > dayAgo) { out.skipped++; continue; }
     }
     targets.push(id);
   }
-  out.total = targets.length;
 
   const text = inviteText(mode === "remind");
   const reply_markup = { inline_keyboard: [...rows, [{ text: "✅ Maine Join Kar Liya", callback_data: "verify_join" }]] };
 
+  const api = tokenApi(token);
   for (const id of targets) {
+    // Live verify: jo pehle se sab join kar chuka hai use dobara msg na jaye.
+    try {
+      const st = await getUserGateStatus(api as any, id, { fresh: true });
+      if (st.ok) { out.skipped++; continue; }
+    } catch { /* verify fail → invite bhej do */ }
+    out.total++;
     try {
       const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",

@@ -271,6 +271,7 @@ export type Database = {
           last_reminded: string | null
           main_joined: boolean
           reminder_count: number
+          started: boolean
           telegram_id: number
           updated_at: string
         }
@@ -284,6 +285,7 @@ export type Database = {
           last_reminded?: string | null
           main_joined?: boolean
           reminder_count?: number
+          started?: boolean
           telegram_id: number
           updated_at?: string
         }
@@ -297,6 +299,7 @@ export type Database = {
           last_reminded?: string | null
           main_joined?: boolean
           reminder_count?: number
+          started?: boolean
           telegram_id?: number
           updated_at?: string
         }

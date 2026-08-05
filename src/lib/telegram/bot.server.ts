@@ -350,41 +350,20 @@ async function withBackupKb(kb?: InlineKeyboard | null): Promise<InlineKeyboard 
   return mergeKeyboards(kb, backup);
 }
 
-// ── force join (DB-backed) ──
-async function forceJoinTargets(): Promise<string[]> {
-  const s = await getSettings();
-  if (!s.force_join_link && !s.main_group_link && !s.backup_group_link) return [];
-  return [s.force_join_link, s.main_group_link, s.backup_group_link]
-    .map((x) => normaliseChatRef(x || ""))
-    .filter((x): x is string => !!x && x.startsWith("@"));
+// ── force join: ek hi membership source (start + main + backup + channel) ──
+async function gateStatus(bot: Bot, userId: number, fresh = false) {
+  const { getUserGateStatus } = await import("./membership.server");
+  return getUserGateStatus(bot.api as any, userId, { fresh });
 }
 
-async function missingChannels(bot: Bot, userId: number): Promise<string[]> {
-  const refs = await forceJoinTargets();
-  if (!refs.length) return [];
-  const missing: string[] = [];
-  for (const ch of refs) {
-    try {
-      const m = await bot.api.getChatMember(ch, userId);
-      if (!["member", "administrator", "creator"].includes(m.status)) missing.push(ch);
-    } catch (e) {
-      console.error("[force-join check]", ch, (e as Error).message);
-    }
-  }
-  return missing;
+async function gateLabels(bot: Bot, userId: number, fresh = false) {
+  const { missingLabels } = await import("./membership.server");
+  const st = await gateStatus(bot, userId, fresh);
+  return { st, labels: missingLabels(st) };
 }
 
 async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  return (await missingChannels(bot, userId)).length === 0;
-}
-
-// User ne bot ko DM me start kiya hai ya nahi
-async function hasStartedBot(bot: Bot, userId: number): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from("tg_users").select("telegram_id").eq("telegram_id", userId).maybeSingle();
-  if (!data) return false;
-  try { await bot.api.sendChatAction(userId, "typing"); return true; }
-  catch { return false; }
+  return (await gateStatus(bot, userId)).ok;
 }
 
 /** Username of the bot that is currently handling the update (multi-bot safe). */

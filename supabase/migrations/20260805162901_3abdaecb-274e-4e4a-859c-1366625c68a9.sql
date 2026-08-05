@@ -1,0 +1,1 @@
+ALTER TABLE public.group_membership ADD COLUMN IF NOT EXISTS started boolean NOT NULL DEFAULT false;

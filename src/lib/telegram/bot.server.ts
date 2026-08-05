@@ -350,41 +350,16 @@ async function withBackupKb(kb?: InlineKeyboard | null): Promise<InlineKeyboard 
   return mergeKeyboards(kb, backup);
 }
 
-// ── force join (DB-backed) ──
-async function forceJoinTargets(): Promise<string[]> {
-  const s = await getSettings();
-  if (!s.force_join_link && !s.main_group_link && !s.backup_group_link) return [];
-  return [s.force_join_link, s.main_group_link, s.backup_group_link]
-    .map((x) => normaliseChatRef(x || ""))
-    .filter((x): x is string => !!x && x.startsWith("@"));
+// ── force join: ek hi membership source (start + main + backup + channel) ──
+async function gateStatus(bot: Bot, userId: number, fresh = false) {
+  const { getUserGateStatus } = await import("./membership.server");
+  return getUserGateStatus(bot.api as any, userId, { fresh });
 }
 
-async function missingChannels(bot: Bot, userId: number): Promise<string[]> {
-  const refs = await forceJoinTargets();
-  if (!refs.length) return [];
-  const missing: string[] = [];
-  for (const ch of refs) {
-    try {
-      const m = await bot.api.getChatMember(ch, userId);
-      if (!["member", "administrator", "creator"].includes(m.status)) missing.push(ch);
-    } catch (e) {
-      console.error("[force-join check]", ch, (e as Error).message);
-    }
-  }
-  return missing;
-}
-
-async function isChannelMember(bot: Bot, userId: number): Promise<boolean> {
-  return (await missingChannels(bot, userId)).length === 0;
-}
-
-// User ne bot ko DM me start kiya hai ya nahi
-async function hasStartedBot(bot: Bot, userId: number): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from("tg_users").select("telegram_id").eq("telegram_id", userId).maybeSingle();
-  if (!data) return false;
-  try { await bot.api.sendChatAction(userId, "typing"); return true; }
-  catch { return false; }
+async function gateLabels(bot: Bot, userId: number, fresh = false) {
+  const { missingLabels } = await import("./membership.server");
+  const st = await gateStatus(bot, userId, fresh);
+  return { st, labels: missingLabels(st) };
 }
 
 /** Username of the bot that is currently handling the update (multi-bot safe). */
@@ -750,8 +725,8 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     }
 
     if (ctx.callbackQuery?.data === "verify_join") {
-      const joined = await isChannelMember(bot, uid);
-      if (joined) {
+      const { st, labels } = await gateLabels(bot, uid, true);
+      if (st.ok) {
         await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
         try { await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }); } catch {}
         await ctx.reply(
@@ -764,45 +739,39 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         return ctx.answerCallbackQuery({ text: "✅ Verified! Bot use kar sakte hain." });
       }
       return ctx.answerCallbackQuery({
-        text: "❌ Aap abhi channel member nahi hain. Pehle join karein!",
+        text: `❌ Abhi baaki hai:\n• ${labels.join("\n• ")}`,
         show_alert: true,
       });
     }
 
     const chatType = ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type;
     if (chatType && chatType !== "private") {
-      // Group: bot start + sab groups joined dono zaroori
-      const started = await hasStartedBot(bot, uid);
-      const missing = started ? await missingChannels(bot, uid) : ["*"];
-      if (started && missing.length === 0) return next();
+      // Group: bot start + main group + backup group — teeno zaroori
+      const { st, labels } = await gateLabels(bot, uid);
+      if (st.ok) return next();
 
       if (ctx.callbackQuery) {
         return ctx.answerCallbackQuery({
-          text: started
-            ? "⚠️ Pehle sab groups join karein!"
-            : "⚠️ Pehle bot ko DM me Start karein!",
+          text: `⚠️ Pehle ye poora karein:\n• ${labels.join("\n• ")}`,
           show_alert: true,
         });
       }
 
-      const reason = !started
-        ? "Pehle bot ko DM me *Start* karo."
-        : "Pehle sab groups join karo.";
       const uname = ctx.from?.username ? `@${ctx.from.username}` : (ctx.from?.first_name ?? "user");
       await ctx.reply(
-        `⚠️ ${uname}, ${reason}\n` +
+        `⚠️ ${uname}, pehle ye poora karo:\n• ${labels.join("\n• ")}\n\n` +
         `Neeche button dabaao — ek click me DM khulega, Start hoga aur sab join links milenge.`,
-        { parse_mode: "Markdown", reply_markup: startAndJoinKb(meName(ctx)) }
+        { reply_markup: startAndJoinKb(meName(ctx)) }
       ).catch(() => null);
       // Incoming middleware and outgoing API transformer queue both messages.
       return;
     }
 
-    const joined = await isChannelMember(bot, uid);
-    if (!joined) {
+    const priv = await gateStatus(bot, uid);
+    if (!priv.ok) {
       if (ctx.callbackQuery) {
         await sendForceJoinMsg(ctx).catch(() => {});
-        return ctx.answerCallbackQuery({ text: "⚠️ Pehle channel join karein!", show_alert: true });
+        return ctx.answerCallbackQuery({ text: "⚠️ Pehle sab group join karein!", show_alert: true });
       }
       return sendForceJoinMsg(ctx);
     }
@@ -827,6 +796,11 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     const uid = ctx.from!.id;
     const chatType = ctx.chat?.type;
     await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
+    if (chatType === "private") {
+      import("./growth.server")
+        .then(({ upsertMembership }) => upsertMembership(uid, { started: true }))
+        .catch(() => {});
+    }
     if (chatType !== "private") {
       const kb = new InlineKeyboard()
         .url("🤖 Bot DM Mein Start Karein", `https://t.me/${meName(ctx)}?start=from_group`);

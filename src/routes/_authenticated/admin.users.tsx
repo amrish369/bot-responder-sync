@@ -83,7 +83,7 @@ function UsersPage() {
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
           <div><div className="text-xl font-bold">{g?.totalUsers ?? "—"}</div><div className="text-xs text-muted-foreground">Total users</div></div>
-          <div><div className="text-xl font-bold text-green-600">{g?.joined ?? "—"}</div><div className="text-xs text-muted-foreground">In main group</div></div>
+          <div><div className="text-xl font-bold text-green-600">{g?.joined ?? "—"}</div><div className="text-xs text-muted-foreground">Fully verified (start+main+backup)</div></div>
           <div><div className="text-xl font-bold text-amber-600">{g?.pending ?? "—"}</div><div className="text-xs text-muted-foreground">Pending</div></div>
           <div><div className="text-xl font-bold text-red-600">{g?.blocked ?? "—"}</div><div className="text-xs text-muted-foreground">Blocked bot</div></div>
           <div><div className="text-xl font-bold">{g?.percent ?? 0}%</div><div className="text-xs text-muted-foreground">Verified</div></div>

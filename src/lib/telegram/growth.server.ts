@@ -1,9 +1,11 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getSettings, asHttpsLink, normaliseChatRef } from "./settings.server";
+import { getUserGateStatus } from "./membership.server";
 
 const JOINED = new Set(["member", "administrator", "creator", "restricted"]);
 
 export interface MembershipPatch {
+  started?: boolean;
   main_joined?: boolean;
   backup_joined?: boolean;
   channel_joined?: boolean;
@@ -90,6 +92,26 @@ export interface CampaignResult {
   errors: string[];
 }
 
+/** Minimal Telegram API adapter for membership checks (no grammY instance needed). */
+function tokenApi(token: string) {
+  const call = async (method: string, body: any) => {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j: any = await res.json();
+    if (!j.ok) throw new Error(j.description || method + " failed");
+    return j.result;
+  };
+  return {
+    getChatMember: (chat_id: string | number, user_id: number) =>
+      call("getChatMember", { chat_id, user_id }),
+    sendChatAction: (chat_id: number, action: string) =>
+      call("sendChatAction", { chat_id, action }),
+  };
+}
+
 /**
  * DM every (or every pending) user a one-tap join invite.
  * mode "invite" = all users, "remind" = only users not in the main group,
@@ -113,7 +135,7 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
     .from("tg_users").select("telegram_id").limit(20000);
   const { data: members } = await supabaseAdmin
     .from("group_membership")
-    .select("telegram_id,main_joined,blocked,last_reminded,reminder_count")
+    .select("telegram_id,started,main_joined,backup_joined,channel_joined,blocked,last_reminded,reminder_count")
     .limit(20000);
   const byId = new Map<number, any>((members ?? []).map((m: any) => [Number(m.telegram_id), m]));
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
@@ -123,19 +145,26 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
     const id = Number(u.telegram_id);
     const m = byId.get(id);
     if (m?.blocked) { out.blocked++; continue; }
+    const fullyJoined = !!(m?.started && m?.main_joined && m?.backup_joined);
+    if (fullyJoined) { out.skipped++; continue; }
     if (mode === "remind") {
-      if (m?.main_joined) { out.skipped++; continue; }
       if ((m?.reminder_count ?? 0) >= 3) { out.skipped++; continue; }
       if (m?.last_reminded && new Date(m.last_reminded).getTime() > dayAgo) { out.skipped++; continue; }
     }
     targets.push(id);
   }
-  out.total = targets.length;
 
   const text = inviteText(mode === "remind");
   const reply_markup = { inline_keyboard: [...rows, [{ text: "✅ Maine Join Kar Liya", callback_data: "verify_join" }]] };
 
+  const api = tokenApi(token);
   for (const id of targets) {
+    // Live verify: jo pehle se sab join kar chuka hai use dobara msg na jaye.
+    try {
+      const st = await getUserGateStatus(api as any, id, { fresh: true });
+      if (st.ok) { out.skipped++; continue; }
+    } catch { /* verify fail → invite bhej do */ }
+    out.total++;
     try {
       const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
@@ -170,16 +199,24 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
 }
 
 export async function growthStats() {
-  const [{ count: totalUsers }, { count: joined }, { count: blocked }] = await Promise.all([
-    supabaseAdmin.from("tg_users").select("*", { count: "exact", head: true }),
-    supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("main_joined", true),
-    supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("blocked", true),
-  ]);
+  const [{ count: totalUsers }, { count: started }, { count: mainJoined }, { count: backupJoined }, { count: verified }, { count: blocked }] =
+    await Promise.all([
+      supabaseAdmin.from("tg_users").select("*", { count: "exact", head: true }),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("started", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("main_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("backup_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true })
+        .eq("started", true).eq("main_joined", true).eq("backup_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("blocked", true),
+    ]);
   const total = totalUsers ?? 0;
-  const inGroup = joined ?? 0;
+  const inGroup = verified ?? 0;
   return {
     totalUsers: total,
     joined: inGroup,
+    started: started ?? 0,
+    mainJoined: mainJoined ?? 0,
+    backupJoined: backupJoined ?? 0,
     pending: Math.max(0, total - inGroup),
     blocked: blocked ?? 0,
     percent: total ? Math.round((inGroup / total) * 100) : 0,
@@ -188,7 +225,8 @@ export async function growthStats() {
 
 export async function listPendingMembers(limit = 100) {
   const { data: members } = await supabaseAdmin
-    .from("group_membership").select("telegram_id").eq("main_joined", true).limit(20000);
+    .from("group_membership").select("telegram_id")
+    .eq("started", true).eq("main_joined", true).eq("backup_joined", true).limit(20000);
   const joinedIds = new Set((members ?? []).map((m: any) => Number(m.telegram_id)));
   const { data: users } = await supabaseAdmin
     .from("tg_users").select("telegram_id,username,first_name,last_seen")

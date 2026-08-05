@@ -199,16 +199,24 @@ export async function runInviteCampaign(mode: "invite" | "remind"): Promise<Camp
 }
 
 export async function growthStats() {
-  const [{ count: totalUsers }, { count: joined }, { count: blocked }] = await Promise.all([
-    supabaseAdmin.from("tg_users").select("*", { count: "exact", head: true }),
-    supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("main_joined", true),
-    supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("blocked", true),
-  ]);
+  const [{ count: totalUsers }, { count: started }, { count: mainJoined }, { count: backupJoined }, { count: verified }, { count: blocked }] =
+    await Promise.all([
+      supabaseAdmin.from("tg_users").select("*", { count: "exact", head: true }),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("started", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("main_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("backup_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true })
+        .eq("started", true).eq("main_joined", true).eq("backup_joined", true),
+      supabaseAdmin.from("group_membership").select("*", { count: "exact", head: true }).eq("blocked", true),
+    ]);
   const total = totalUsers ?? 0;
-  const inGroup = joined ?? 0;
+  const inGroup = verified ?? 0;
   return {
     totalUsers: total,
     joined: inGroup,
+    started: started ?? 0,
+    mainJoined: mainJoined ?? 0,
+    backupJoined: backupJoined ?? 0,
     pending: Math.max(0, total - inGroup),
     blocked: blocked ?? 0,
     percent: total ? Math.round((inGroup / total) * 100) : 0,
@@ -217,7 +225,8 @@ export async function growthStats() {
 
 export async function listPendingMembers(limit = 100) {
   const { data: members } = await supabaseAdmin
-    .from("group_membership").select("telegram_id").eq("main_joined", true).limit(20000);
+    .from("group_membership").select("telegram_id")
+    .eq("started", true).eq("main_joined", true).eq("backup_joined", true).limit(20000);
   const joinedIds = new Set((members ?? []).map((m: any) => Number(m.telegram_id)));
   const { data: users } = await supabaseAdmin
     .from("tg_users").select("telegram_id,username,first_name,last_seen")

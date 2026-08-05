@@ -1,9 +1,11 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getSettings, asHttpsLink, normaliseChatRef } from "./settings.server";
+import { getUserGateStatus } from "./membership.server";
 
 const JOINED = new Set(["member", "administrator", "creator", "restricted"]);
 
 export interface MembershipPatch {
+  started?: boolean;
   main_joined?: boolean;
   backup_joined?: boolean;
   channel_joined?: boolean;

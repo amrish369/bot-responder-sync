@@ -92,6 +92,26 @@ export interface CampaignResult {
   errors: string[];
 }
 
+/** Minimal Telegram API adapter for membership checks (no grammY instance needed). */
+function tokenApi(token: string) {
+  const call = async (method: string, body: any) => {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j: any = await res.json();
+    if (!j.ok) throw new Error(j.description || method + " failed");
+    return j.result;
+  };
+  return {
+    getChatMember: (chat_id: string | number, user_id: number) =>
+      call("getChatMember", { chat_id, user_id }),
+    sendChatAction: (chat_id: number, action: string) =>
+      call("sendChatAction", { chat_id, action }),
+  };
+}
+
 /**
  * DM every (or every pending) user a one-tap join invite.
  * mode "invite" = all users, "remind" = only users not in the main group,

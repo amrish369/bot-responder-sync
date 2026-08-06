@@ -9,10 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as MoviesRouteImport } from './routes/movies'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MIdRouteImport } from './routes/m.$id'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
@@ -30,8 +32,14 @@ import { Route as ApiPublicHooksTmdbBackfillRouteImport } from './routes/api/pub
 import { Route as ApiPublicHooksRunDeleteQueueRouteImport } from './routes/api/public/hooks/run-delete-queue'
 import { Route as ApiPublicHooksGroupInviteRemindersRouteImport } from './routes/api/public/hooks/group-invite-reminders'
 import { Route as ApiPublicHooksCleanupPayloadsRouteImport } from './routes/api/public/hooks/cleanup-payloads'
+import { Route as ApiPublicDlIdRouteImport } from './routes/api/public/dl/$id'
 import { Route as ApiPublicTelegramWebhookBotIdRouteImport } from './routes/api/public/telegram/webhook.$botId'
 
+const MoviesRoute = MoviesRouteImport.update({
+  id: '/movies',
+  path: '/movies',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const McpRoute = McpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
@@ -49,6 +57,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MIdRoute = MIdRouteImport.update({
+  id: '/m/$id',
+  path: '/m/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const Char91DotwellKnownChar93OauthProtectedResourceRoute =
@@ -150,6 +163,11 @@ const ApiPublicHooksCleanupPayloadsRoute =
     path: '/api/public/hooks/cleanup-payloads',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicDlIdRoute = ApiPublicDlIdRouteImport.update({
+  id: '/api/public/dl/$id',
+  path: '/api/public/dl/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicTelegramWebhookBotIdRoute =
   ApiPublicTelegramWebhookBotIdRouteImport.update({
     id: '/$botId',
@@ -161,8 +179,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
+  '/movies': typeof MoviesRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
@@ -172,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -184,8 +205,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
+  '/movies': typeof MoviesRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
@@ -195,6 +218,7 @@ export interface FileRoutesByTo {
   '/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
+  '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -209,8 +233,10 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/mcp': typeof McpRoute
+  '/movies': typeof MoviesRoute
   '/.mcp/list-tools': typeof Char91DotmcpChar93ListToolsRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
   '/_authenticated/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
@@ -220,6 +246,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/storage': typeof AuthenticatedAdminStorageRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
@@ -234,8 +261,10 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/mcp'
+    | '/movies'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
+    | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
     | '/admin/bots'
     | '/admin/broadcast'
@@ -245,6 +274,7 @@ export interface FileRouteTypes {
     | '/admin/storage'
     | '/admin/users'
     | '/admin/'
+    | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
@@ -257,8 +287,10 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/mcp'
+    | '/movies'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
+    | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
     | '/admin/bots'
     | '/admin/broadcast'
@@ -268,6 +300,7 @@ export interface FileRouteTypes {
     | '/admin/storage'
     | '/admin/users'
     | '/admin'
+    | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
@@ -281,8 +314,10 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/mcp'
+    | '/movies'
     | '/.mcp/list-tools'
     | '/.well-known/oauth-protected-resource'
+    | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
     | '/_authenticated/admin/bots'
     | '/_authenticated/admin/broadcast'
@@ -292,6 +327,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/storage'
     | '/_authenticated/admin/users'
     | '/_authenticated/admin/'
+    | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
@@ -306,9 +342,12 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   McpRoute: typeof McpRoute
+  MoviesRoute: typeof MoviesRoute
   Char91DotmcpChar93ListToolsRoute: typeof Char91DotmcpChar93ListToolsRoute
   Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  MIdRoute: typeof MIdRoute
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
+  ApiPublicDlIdRoute: typeof ApiPublicDlIdRoute
   ApiPublicHooksCleanupPayloadsRoute: typeof ApiPublicHooksCleanupPayloadsRoute
   ApiPublicHooksGroupInviteRemindersRoute: typeof ApiPublicHooksGroupInviteRemindersRoute
   ApiPublicHooksRunDeleteQueueRoute: typeof ApiPublicHooksRunDeleteQueueRoute
@@ -319,6 +358,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/movies': {
+      id: '/movies'
+      path: '/movies'
+      fullPath: '/movies'
+      preLoaderRoute: typeof MoviesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mcp': {
       id: '/mcp'
       path: '/mcp'
@@ -345,6 +391,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/m/$id': {
+      id: '/m/$id'
+      path: '/m/$id'
+      fullPath: '/m/$id'
+      preLoaderRoute: typeof MIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.well-known/oauth-protected-resource': {
@@ -466,6 +519,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksCleanupPayloadsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/dl/$id': {
+      id: '/api/public/dl/$id'
+      path: '/api/public/dl/$id'
+      fullPath: '/api/public/dl/$id'
+      preLoaderRoute: typeof ApiPublicDlIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram/webhook/$botId': {
       id: '/api/public/telegram/webhook/$botId'
       path: '/$botId'
@@ -520,10 +580,13 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   McpRoute: McpRoute,
+  MoviesRoute: MoviesRoute,
   Char91DotmcpChar93ListToolsRoute: Char91DotmcpChar93ListToolsRoute,
   Char91DotwellKnownChar93OauthProtectedResourceRoute:
     Char91DotwellKnownChar93OauthProtectedResourceRoute,
+  MIdRoute: MIdRoute,
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
+  ApiPublicDlIdRoute: ApiPublicDlIdRoute,
   ApiPublicHooksCleanupPayloadsRoute: ApiPublicHooksCleanupPayloadsRoute,
   ApiPublicHooksGroupInviteRemindersRoute:
     ApiPublicHooksGroupInviteRemindersRoute,

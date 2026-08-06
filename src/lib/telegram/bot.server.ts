@@ -586,7 +586,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
             (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
             `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
           parse_mode: "Markdown",
-          reply_markup: await withBackupKb(dmKb),
+          reply_markup: await withBackupKb(dmKb, m?.id ?? inserted?.id),
         });
         await fulfillRequest(req.id);
         delivered++;
@@ -843,7 +843,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
           `⏱️ *Auto-delete in 5 min — forward karke save karo.*`;
         try {
-          await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb() });
+          await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(null, m.id) });
           // Outgoing API transformer queues the delivered file.
         } catch (e) {
           await ctx.reply("❌ File deliver nahi ho paayi. Admin ko contact karein.").catch(() => {});
@@ -2016,7 +2016,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         if (inGroup) {
           // 🛡️ Copyright: NEVER deliver file in group. Always DM the user.
           try {
-            await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+            await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb, m.id) });
             // Outgoing API transformer queues the delivered file.
             await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
           } catch (dmErr) {
@@ -2033,7 +2033,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         }
 
         // Private chat — deliver directly
-        await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb) });
+        await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb, m.id) });
         // Outgoing API transformer queues the delivered file.
         return ctx.answerCallbackQuery({ text: `📥 ${m.title} deliver ho rahi hai!` });
       } catch (e) {
@@ -2185,7 +2185,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
             `✅ *Ab aap is movie ko download kar sakte hain!*`,
-          parse_mode: "Markdown", reply_markup: await withBackupKb(dmKb),
+          parse_mode: "Markdown", reply_markup: await withBackupKb(dmKb, m?.id ?? inserted?.id),
         });
         return ctx.answerCallbackQuery({ text: `✅ ${m.title} — DM bhej di!` });
       } catch (e) {

@@ -916,6 +916,27 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
   });
 
   bot.command("help", async (ctx) => {
+    /* help below */
+  });
+
+  bot.command("link", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return;
+    const arg = (ctx.match as string)?.trim();
+    const id = Number(arg);
+    if (!Number.isFinite(id) || id <= 0) {
+      return tempReply(ctx, "Usage: /link &lt;movieId&gt;", { parse_mode: "HTML" });
+    }
+    const m = await fetchMovieById(id);
+    if (!m) return tempReply(ctx, "❌ Movie ID nahi mili.");
+    const url = await movieWebUrl(m.id);
+    return tempReply(
+      ctx,
+      `🔗 <b>${m.title}</b>${m.year ? ` (${m.year})` : ""}\n${url}`,
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().url("🔗 Open Link", url) },
+    );
+  });
+
+  bot.command("__help_impl", async (ctx) => {
     const helpText =
       `🎬 <b>CineRadar AI — Commands</b>\n\n` +
       `🔍 <b>Search:</b> Just type movie name (min 3 chars)\n` +

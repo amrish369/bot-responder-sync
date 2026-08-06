@@ -586,7 +586,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
             (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
             `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
           parse_mode: "Markdown",
-          reply_markup: await withBackupKb(dmKb, m?.id ?? inserted?.id),
+          reply_markup: await withBackupKb(dmKb, inserted.id),
         });
         await fulfillRequest(req.id);
         delivered++;
@@ -2185,7 +2185,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
             `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
             `✅ *Ab aap is movie ko download kar sakte hain!*`,
-          parse_mode: "Markdown", reply_markup: await withBackupKb(dmKb, m?.id ?? inserted?.id),
+          parse_mode: "Markdown", reply_markup: await withBackupKb(dmKb, m.id),
         });
         return ctx.answerCallbackQuery({ text: `✅ ${m.title} — DM bhej di!` });
       } catch (e) {

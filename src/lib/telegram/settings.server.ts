@@ -15,6 +15,7 @@ export interface BotSettings {
   backup_group_link: string | null;   // https URL or @username
   storage_channel_id: number;         // -100... channel id for movie file storage
   auto_index: boolean;                // auto-index files posted in storage channel
+  public_site_url: string;            // base URL used for shareable movie links
 }
 
 const DEFAULTS: BotSettings = {
@@ -26,6 +27,7 @@ const DEFAULTS: BotSettings = {
   backup_group_link: null,
   storage_channel_id: -1004299446417,
   auto_index: true,
+  public_site_url: "https://downtoup781-gmail-com.lovable.app",
 };
 
 let cache: { at: number; data: BotSettings } | null = null;

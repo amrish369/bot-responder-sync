@@ -834,10 +834,6 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     }
 
     // Deep-link: user tapped "Start Bot to Receive File" in a group
-    if (startParam?.startsWith("get_")) {
-      /* handled below */
-    }
-
     // Deep-link: "Download Now" tapped on the public web page (/m/<id>)
     if (startParam?.startsWith("dl_")) {
       const mid = Number(startParam.slice(3));
@@ -915,10 +911,6 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     );
   });
 
-  bot.command("help", async (ctx) => {
-    /* help below */
-  });
-
   bot.command("link", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return;
     const arg = (ctx.match as string)?.trim();
@@ -936,7 +928,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     );
   });
 
-  bot.command("__help_impl", async (ctx) => {
+  bot.command("help", async (ctx) => {
     const helpText =
       `🎬 <b>CineRadar AI — Commands</b>\n\n` +
       `🔍 <b>Search:</b> Just type movie name (min 3 chars)\n` +

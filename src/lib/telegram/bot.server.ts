@@ -343,11 +343,26 @@ async function backupGroupKb(): Promise<InlineKeyboard | null> {
   return new InlineKeyboard().url("🗂️ Backup Group", url);
 }
 
-async function withBackupKb(kb?: InlineKeyboard | null): Promise<InlineKeyboard | undefined> {
+/** Public shareable web page for a movie (works from any browser). */
+export async function movieWebUrl(movieId: number): Promise<string> {
+  const s = await getSettings();
+  const base = (s.public_site_url || "").replace(/\/+$/, "");
+  return `${base}/m/${movieId}`;
+}
+
+async function withBackupKb(
+  kb?: InlineKeyboard | null,
+  movieId?: number,
+): Promise<InlineKeyboard | undefined> {
   const backup = await backupGroupKb();
-  if (!backup) return kb ?? undefined;
-  if (!kb) return backup;
-  return mergeKeyboards(kb, backup);
+  let extra: InlineKeyboard | null = backup;
+  if (movieId) {
+    const web = new InlineKeyboard().url("🔗 Web Download Link", await movieWebUrl(movieId));
+    extra = extra ? mergeKeyboards(extra, web) : web;
+  }
+  if (!extra) return kb ?? undefined;
+  if (!kb) return extra;
+  return mergeKeyboards(kb, extra);
 }
 
 // ── force join: ek hi membership source (start + main + backup + channel) ──

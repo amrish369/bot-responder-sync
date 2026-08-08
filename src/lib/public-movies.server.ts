@@ -10,13 +10,32 @@ export interface EnrichPatch {
 }
 
 /** Fetch poster/metadata from TMDB for a movie missing it, and cache into the DB. */
+const JUNK = /\b(bluray|blu-ray|webrip|web-dl|webdl|web|hdrip|hdtv|dvdrip|brrip|x264|x265|h264|h265|hevc|10bit|8bit|aac|ddp?5[\s.]?1|dd5[\s.]?1|esub|esubs|msub|dual\s*audio|hin|eng|tam|tel|mkv|mp4|avi|480p|720p|1080p|2160p|4k|pahe|in|untouched|hq|hdcam|predvd|camrip|s\d{1,2}e\d{1,2})\b/gi;
+
+/** Strip release-group / encoder junk so TMDB can match the real title. */
+export function cleanTitle(raw: string): string {
+  let t = (raw || "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ")
+    .split(/powered\s*by|⛩|\bdb:\s*\d+/i)[0]
+    .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, " ")
+    .replace(/[._]+/g, " ");
+  t = t.replace(JUNK, " ");
+  t = t.replace(/\b(19|20)\d{2}\b/g, " ");
+  t = t.replace(/[|@#]+/g, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(/[-–—:,]+$/, "").trim();
+  return t || (raw || "").trim();
+}
+
 export async function enrichPoster(
   id: number,
   title: string,
   year: number | null,
 ): Promise<EnrichPatch | null> {
   try {
-    const meta = await tmdbVerify(title, year ?? undefined);
+    const cleaned = cleanTitle(title);
+    let meta = await tmdbVerify(cleaned, year ?? undefined);
+    if ((!meta || !meta.poster_url) && year) meta = await tmdbVerify(cleaned, null);
+    if ((!meta || !meta.poster_url) && cleaned !== title) meta = await tmdbVerify(title, year ?? undefined);
     if (!meta || !meta.poster_url) return null;
     const patch: EnrichPatch = {
       poster_url: meta.poster_url,

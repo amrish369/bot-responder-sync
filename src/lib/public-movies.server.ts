@@ -10,7 +10,7 @@ export interface EnrichPatch {
 }
 
 /** Fetch poster/metadata from TMDB for a movie missing it, and cache into the DB. */
-const JUNK = /\b(bluray|blu-ray|webrip|web-dl|webdl|web|hdrip|hdtv|dvdrip|brrip|x264|x265|h264|h265|hevc|10bit|8bit|aac|ddp?5[\s.]?1|dd5[\s.]?1|esub|esubs|msub|dual\s*audio|hin|eng|tam|tel|mkv|mp4|avi|480p|720p|1080p|2160p|4k|pahe|in|untouched|hq|hdcam|predvd|camrip|s\d{1,2}e\d{1,2})\b/gi;
+const JUNK = /\b(bluray|blu-ray|webrip|web-dl|webdl|web|dl|hdrip|hdtv|dvdrip|brrip|x264|x265|h264|h265|hevc|10bit|8bit|aac|ddp?5[\s.]?1|dd5[\s.]?1|esub|esubs|msub|dual\s*audio|hin|eng|tam|tel|mkv|mp4|avi|480p|720p|1080p|2160p|4k|pahe|in|untouched|hq|hdcam|predvd|camrip|s\d{1,2}e\d{1,2})\b/gi;
 
 /** Strip release-group / encoder junk so TMDB can match the real title. */
 export function cleanTitle(raw: string): string {

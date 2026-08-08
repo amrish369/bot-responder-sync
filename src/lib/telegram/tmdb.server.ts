@@ -77,13 +77,18 @@ export interface VerifiedMetadata {
 }
 
 function scoreCandidate(query: string, candTitle: string, candOrig: string): number {
-  const q = query.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  const a = candTitle.toLowerCase();
-  const b = (candOrig || "").toLowerCase();
+  const norm = (s: string) =>
+    (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const q = norm(query);
+  const a = norm(candTitle);
+  const b = norm(candOrig);
   if (!q) return 0;
   if (a === q || b === q) return 1;
   if (a.startsWith(q) || b.startsWith(q)) return 0.9;
   if (a.includes(q) || b.includes(q)) return 0.75;
+  // query contains the candidate title (query has extra junk words)
+  if (a.length >= 4 && q.startsWith(a)) return 0.85;
+  if (a.length >= 4 && q.includes(a)) return 0.7;
   // token overlap
   const qt = new Set(q.split(" ").filter((w) => w.length > 1));
   const at = new Set(a.split(/\s+/).filter((w) => w.length > 1));

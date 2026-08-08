@@ -77,9 +77,11 @@ export interface VerifiedMetadata {
 }
 
 function scoreCandidate(query: string, candTitle: string, candOrig: string): number {
-  const q = query.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  const a = candTitle.toLowerCase();
-  const b = (candOrig || "").toLowerCase();
+  const norm = (s: string) =>
+    (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const q = norm(query);
+  const a = norm(candTitle);
+  const b = norm(candOrig);
   if (!q) return 0;
   if (a === q || b === q) return 1;
   if (a.startsWith(q) || b.startsWith(q)) return 0.9;

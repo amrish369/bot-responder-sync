@@ -86,6 +86,9 @@ function scoreCandidate(query: string, candTitle: string, candOrig: string): num
   if (a === q || b === q) return 1;
   if (a.startsWith(q) || b.startsWith(q)) return 0.9;
   if (a.includes(q) || b.includes(q)) return 0.75;
+  // query contains the candidate title (query has extra junk words)
+  if (a.length >= 4 && q.startsWith(a)) return 0.85;
+  if (a.length >= 4 && q.includes(a)) return 0.7;
   // token overlap
   const qt = new Set(q.split(" ").filter((w) => w.length > 1));
   const at = new Set(a.split(/\s+/).filter((w) => w.length > 1));

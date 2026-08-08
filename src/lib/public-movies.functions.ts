@@ -52,6 +52,12 @@ export const getPublicMovie = createServerFn({ method: "GET" })
       return { movie: null, others: [] as PublicMovie[], botUsername: "", directDownload: false };
     }
 
+    if (!movie.poster_url) {
+      const { enrichPoster } = await import("./public-movies.server");
+      const patch = await enrichPoster(movie.id, movie.title, movie.year);
+      if (patch) Object.assign(movie, patch);
+    }
+
     const { data: siblings } = await supabaseAdmin
       .from("movies")
       .select(COLS)
@@ -85,8 +91,21 @@ export const listPublicMovies = createServerFn({ method: "GET" })
       query = query.ilike("title", `%${data.q.trim()}%`);
     }
     const { data: rows, count } = await query;
+    const movies = ((rows as PublicMovie[]) ?? []);
+
+    const missing = movies.filter((m) => !m.poster_url).slice(0, 8);
+    if (missing.length) {
+      const { enrichPoster } = await import("./public-movies.server");
+      await Promise.all(
+        missing.map(async (m) => {
+          const patch = await enrichPoster(m.id, m.title, m.year);
+          if (patch) Object.assign(m, patch);
+        }),
+      );
+    }
+
     return {
-      movies: ((rows as PublicMovie[]) ?? []),
+      movies,
       total: count ?? 0,
       page: data.page,
       perPage,

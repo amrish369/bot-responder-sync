@@ -19,10 +19,18 @@ export function cleanTitle(raw: string): string {
     .split(/powered\s*by|⛩|\bdb:\s*\d+/i)[0]
     .replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}/g, " ")
     .replace(/[._]+/g, " ");
-  t = t.replace(JUNK, " ");
-  t = t.replace(/\b(19|20)\d{2}\b/g, " ");
-  t = t.replace(/[|@#]+/g, " ").replace(/\s+/g, " ").trim();
-  t = t.replace(/[-–—:,]+$/, "").trim();
+  // cut at the first release-junk token — everything after it is encoder noise
+  const words = t.split(/\s+/).filter(Boolean);
+  const cut: string[] = [];
+  for (const w of words) {
+    JUNK.lastIndex = 0;
+    if (JUNK.test(w) || /^(19|20)\d{2}$/.test(w) || /^[|@#\-–—:,]+$/.test(w)) break;
+    cut.push(w);
+  }
+  const head = cut.join(" ").replace(/[-–—:,|]+$/, "").trim();
+  if (head.length >= 2) return head;
+  t = t.replace(JUNK, " ").replace(/\b(19|20)\d{2}\b/g, " ")
+    .replace(/[|@#]+/g, " ").replace(/\s+/g, " ").trim().replace(/[-–—:,]+$/, "").trim();
   return t || (raw || "").trim();
 }
 

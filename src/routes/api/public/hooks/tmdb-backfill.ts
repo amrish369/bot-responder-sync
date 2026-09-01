@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { tmdbVerify } from "@/lib/telegram/tmdb.server";
 import { buildSearchText, generateAliases } from "@/lib/telegram/search.server";
+import { cleanTitle } from "@/lib/public-movies.server";
 import { verifyHookSecret } from "@/lib/telegram/hook-auth.server";
 
 export const Route = createFileRoute("/api/public/hooks/tmdb-backfill")({
@@ -12,15 +13,19 @@ export const Route = createFileRoute("/api/public/hooks/tmdb-backfill")({
         if (unauth) return unauth;
         const url = new URL(request.url);
         const limit = Math.min(50, Number(url.searchParams.get("limit") || "20"));
+        const offset = Math.max(0, Number(url.searchParams.get("offset") || "0"));
         const { data: rows } = await supabaseAdmin
           .from("movies")
           .select("*")
           .or("tmdb_verified.is.null,tmdb_verified.eq.false")
           .order("id", { ascending: true })
-          .limit(limit);
+          .range(offset, offset + limit - 1);
         let ok = 0, skipped = 0;
         for (const m of rows ?? []) {
-          const v = await tmdbVerify(m.title, m.year).catch(() => null);
+          const cleaned = cleanTitle(m.title);
+          let v = await tmdbVerify(cleaned, m.year).catch(() => null);
+          if (!v && m.year) v = await tmdbVerify(cleaned, null).catch(() => null);
+          if (!v && cleaned !== m.title) v = await tmdbVerify(m.title, m.year).catch(() => null);
           if (!v) { skipped++; continue; }
           const aliases = generateAliases(v.title, v.original_title);
           const search_text = buildSearchText({

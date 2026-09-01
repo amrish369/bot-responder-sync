@@ -84,6 +84,7 @@ function MoviePage() {
             />
           )}
           <div className="space-y-3">
+            <p className="font-mono text-xs text-primary">ID #{movie.id}</p>
             <h1 className="text-2xl font-bold sm:text-3xl">
               {movie.title} {movie.year ? <span className="text-muted-foreground">({movie.year})</span> : null}
             </h1>
@@ -132,6 +133,7 @@ function MoviePage() {
                     className="flex items-center justify-between rounded-md border border-border px-4 py-3 text-sm hover:bg-muted"
                   >
                     <span>
+                      <span className="font-mono text-xs text-primary">#{o.id}</span>{" "}
                       {o.title} {o.year ? `(${o.year})` : ""} — {o.language || "N/A"} / {o.quality || "N/A"}
                     </span>
                     <span className="text-muted-foreground">{fmtSize(o.file_size)}</span>

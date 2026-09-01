@@ -97,6 +97,7 @@ function MoviesPage() {
                     </div>
                   )}
                   <div className="space-y-1 p-3">
+                    <p className="font-mono text-[11px] text-primary">ID #{m.id}</p>
                     <p className="line-clamp-2 text-sm font-medium">{m.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {[m.year, m.quality, fmtSize(m.file_size)].filter(Boolean).join(" • ")}

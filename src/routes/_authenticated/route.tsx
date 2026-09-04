@@ -24,15 +24,26 @@ function Layout() {
   const navigate = useNavigate();
   const check = useServerFn(checkIsAdmin);
   const [ok, setOk] = useState<null | boolean>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    check().then((r) => setOk(r.ok)).catch(() => setOk(false));
+    let alive = true;
+    setOk(null);
+    setErr(null);
+    check()
+      .then((r) => { if (alive) setOk(r.ok); })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setErr((e as Error)?.message || "Could not verify admin access");
+        setOk(false);
+      });
+    return () => { alive = false; };
   }, [check]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    navigate({ to: "/auth" });
+    navigate({ to: "/auth", replace: true });
   };
 
   if (ok === null) {
@@ -43,12 +54,19 @@ function Layout() {
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="text-center space-y-4 max-w-sm">
           <h1 className="text-xl font-semibold">Access denied</h1>
-          <p className="text-sm text-muted-foreground">Your email is not on the admin allowlist.</p>
-          <Button onClick={signOut} variant="outline">Sign out</Button>
+          <p className="text-sm text-muted-foreground">
+            {err ?? "Your email is not on the admin allowlist."}
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+            <Button onClick={signOut} variant="outline">Sign out</Button>
+          </div>
         </div>
       </div>
     );
   }
+
+
 
   const nav = [
     { to: "/admin", label: "Dashboard", icon: LayoutDashboard },

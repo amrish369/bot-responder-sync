@@ -10,11 +10,18 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/auth")({
   ssr: false,
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (data.user) throw redirect({ to: "/admin" });
+    // Session lives in browser storage; never touch the client during SSR/prerender.
+    if (typeof window === "undefined") return;
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) throw redirect({ to: "/admin" });
+    } catch (e) {
+      if (e && typeof e === "object" && "to" in (e as any)) throw e;
+    }
   },
   component: AuthPage,
 });
+
 
 function AuthPage() {
   const navigate = useNavigate();

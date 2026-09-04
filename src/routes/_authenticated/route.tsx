@@ -9,6 +9,9 @@ import { Menu, X, LayoutDashboard, Film, Users, Send, Bot as BotIcon, LogOut, Se
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
+    // Session lives in browser storage — skip during SSR/prerender so the
+    // published build never crashes before the client can check the session.
+    if (typeof window === "undefined") return {};
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) throw redirect({ to: "/auth" });
     return { user: data.user };
@@ -16,19 +19,31 @@ export const Route = createFileRoute("/_authenticated")({
   component: Layout,
 });
 
+
 function Layout() {
   const navigate = useNavigate();
   const check = useServerFn(checkIsAdmin);
   const [ok, setOk] = useState<null | boolean>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    check().then((r) => setOk(r.ok)).catch(() => setOk(false));
+    let alive = true;
+    setOk(null);
+    setErr(null);
+    check()
+      .then((r) => { if (alive) setOk(r.ok); })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setErr((e as Error)?.message || "Could not verify admin access");
+        setOk(false);
+      });
+    return () => { alive = false; };
   }, [check]);
 
   const signOut = async () => {
     await supabase.auth.signOut();
-    navigate({ to: "/auth" });
+    navigate({ to: "/auth", replace: true });
   };
 
   if (ok === null) {
@@ -39,12 +54,19 @@ function Layout() {
       <div className="flex min-h-screen items-center justify-center px-4">
         <div className="text-center space-y-4 max-w-sm">
           <h1 className="text-xl font-semibold">Access denied</h1>
-          <p className="text-sm text-muted-foreground">Your email is not on the admin allowlist.</p>
-          <Button onClick={signOut} variant="outline">Sign out</Button>
+          <p className="text-sm text-muted-foreground">
+            {err ?? "Your email is not on the admin allowlist."}
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => window.location.reload()}>Retry</Button>
+            <Button onClick={signOut} variant="outline">Sign out</Button>
+          </div>
         </div>
       </div>
     );
   }
+
+
 
   const nav = [
     { to: "/admin", label: "Dashboard", icon: LayoutDashboard },

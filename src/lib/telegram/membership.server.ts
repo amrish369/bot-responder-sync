@@ -86,7 +86,9 @@ export async function getUserGateStatus(
 
   const s = await getSettings();
   const [started, main, backup, channel] = await Promise.all([
-    hasStarted(api, userId),
+    opts.assumeStarted || (row as any)?.started
+      ? Promise.resolve(true)
+      : hasStarted(api, userId),
     checkRef(api, s.main_group_link, userId),
     checkRef(api, s.backup_group_link, userId),
     checkRef(api, s.force_join_link, userId),

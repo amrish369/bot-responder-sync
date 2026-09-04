@@ -366,14 +366,14 @@ async function withBackupKb(
 }
 
 // ── force join: ek hi membership source (start + main + backup + channel) ──
-async function gateStatus(bot: Bot, userId: number, fresh = false) {
+async function gateStatus(bot: Bot, userId: number, fresh = false, assumeStarted = false) {
   const { getUserGateStatus } = await import("./membership.server");
-  return getUserGateStatus(bot.api as any, userId, { fresh });
+  return getUserGateStatus(bot.api as any, userId, { fresh, assumeStarted });
 }
 
-async function gateLabels(bot: Bot, userId: number, fresh = false) {
+async function gateLabels(bot: Bot, userId: number, fresh = false, assumeStarted = false) {
   const { missingLabels } = await import("./membership.server");
-  const st = await gateStatus(bot, userId, fresh);
+  const st = await gateStatus(bot, userId, fresh, assumeStarted);
   return { st, labels: missingLabels(st) };
 }
 
@@ -425,7 +425,7 @@ async function maybeSendDailyDigest(bot: Bot, userId: number) {
   try {
     const key = `daily_sent_user_${userId}`;
     const { data: row } = await supabaseAdmin
-      .from("b_settings" as any).select("value").eq("key", key).maybeSingle();
+      .from("bot_settings" as any).select("value").eq("key", key).maybeSingle();
     const todayUTC = new Date().toISOString().slice(0, 10);
     if (row && (row as any).value === todayUTC) return;
 
@@ -740,7 +740,9 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     }
 
     if (ctx.callbackQuery?.data === "verify_join") {
-      const { st, labels } = await gateLabels(bot, uid, true);
+      const inPrivate =
+        (ctx.chat?.type || ctx.callbackQuery?.message?.chat?.type) === "private";
+      const { st, labels } = await gateLabels(bot, uid, true, inPrivate);
       if (st.ok) {
         await trackUser(uid, ctx.from?.first_name, ctx.from?.username);
         try { await ctx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() }); } catch {}
@@ -782,7 +784,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       return;
     }
 
-    const priv = await gateStatus(bot, uid);
+    const priv = await gateStatus(bot, uid, false, true);
     if (!priv.ok) {
       if (ctx.callbackQuery) {
         await sendForceJoinMsg(ctx).catch(() => {});

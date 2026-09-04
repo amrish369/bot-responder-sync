@@ -9,12 +9,16 @@ import { Menu, X, LayoutDashboard, Film, Users, Send, Bot as BotIcon, LogOut, Se
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
+    // Session lives in browser storage — skip during SSR/prerender so the
+    // published build never crashes before the client can check the session.
+    if (typeof window === "undefined") return {};
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) throw redirect({ to: "/auth" });
     return { user: data.user };
   },
   component: Layout,
 });
+
 
 function Layout() {
   const navigate = useNavigate();

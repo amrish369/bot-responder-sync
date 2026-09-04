@@ -69,7 +69,7 @@ function build(started: boolean, main: boolean, backup: boolean, channel: boolea
 export async function getUserGateStatus(
   api: TgApi,
   userId: number,
-  opts: { fresh?: boolean } = {},
+  opts: { fresh?: boolean; assumeStarted?: boolean } = {},
 ): Promise<GateStatus> {
   const { data: row } = await supabaseAdmin
     .from("group_membership")

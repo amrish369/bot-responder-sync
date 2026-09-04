@@ -1,8 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "CineRadar AI — Telegram Movie Bot Admin" },
+      { name: "description", content: "Control panel for the CineRadar AI Telegram movie bot: catalog, users, requests, broadcasts and bots." },
+      { property: "og:title", content: "CineRadar AI — Telegram Movie Bot Admin" },
+      { property: "og:description", content: "Control panel for the CineRadar AI Telegram movie bot: catalog, users, requests, broadcasts and bots." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
   component: Index,
 });
+
 
 function Index() {
   return (

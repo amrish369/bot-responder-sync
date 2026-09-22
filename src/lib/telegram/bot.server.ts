@@ -350,6 +350,21 @@ export async function movieWebUrl(movieId: number): Promise<string> {
   return `${base}/m/${movieId}`;
 }
 
+/** Telegram Mini App URL (opens the catalog inside Telegram). */
+async function miniAppUrl(): Promise<string | null> {
+  const s = await getSettings();
+  const base = (s.public_site_url || "").replace(/\/+$/, "");
+  if (!/^https:\/\//i.test(base)) return null;
+  return `${base}/app`;
+}
+
+/** Inline keyboard with the "Open Movie App" web_app button (private chats only). */
+async function miniAppKb(): Promise<InlineKeyboard | null> {
+  const url = await miniAppUrl();
+  if (!url) return null;
+  return new InlineKeyboard().webApp("🎬 Open Movie App", url);
+}
+
 async function withBackupKb(
   kb?: InlineKeyboard | null,
   movieId?: number,
@@ -878,6 +893,8 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       }
     }
 
+    const appKb = await miniAppKb();
+
     const fromGroup = startParam?.includes("from_group") || startParam?.includes("ref");
     if (fromGroup) {
       return ctx.reply(
@@ -888,13 +905,14 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         `🗳️ Debate results\n` +
         `🎬 Direct movie DMs\n\n` +
         `👇 *Ab kya karo?*\n` +
-        `Movie ka naam type karo ya /help dekho.`,
-        { parse_mode: "Markdown" }
+        `Movie App kholo ya movie ka naam type karo.`,
+        { parse_mode: "Markdown", reply_markup: appKb ?? undefined }
       ).catch(() => {});
     }
     return ctx.reply(
       `🎬 *Welcome to CineRadar AI, ${escapeMarkdown(firstName)}!*\n\n` +
       `━━━━━━━━━━━━━━━━━━━\n` +
+      `📱 *Movie App* — poster ke saath poora catalog, niche button se kholo\n\n` +
       `🔍 *Movie Dhundho*\n` +
       `Movie ka naam type karo (min 3 letters)\n\n` +
       `🎭 *Mood Se Dhundho*\n` +
@@ -909,8 +927,45 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       `━━━━━━━━━━━━━━━━━━━\n` +
       `⏱️ _Messages 5 min mein delete hote hain — forward karke save karo_\n` +
       `⚡ _3x Fast Download ke liye website visit karein ek baar_`,
-      { parse_mode: "Markdown" }
+      { parse_mode: "Markdown", reply_markup: appKb ?? undefined }
     );
+  });
+
+  // 🎬 Telegram Mini App — catalog inside Telegram
+  bot.command("app", async (ctx) => {
+    const url = await miniAppUrl();
+    if (!url) {
+      return ctx.reply("⚠️ Movie App abhi set nahi hai. Admin: /settings me website link set karein.");
+    }
+    if (ctx.chat?.type !== "private") {
+      return ctx
+        .reply("📱 Movie App bot ke DM me khulta hai.", {
+          reply_markup: new InlineKeyboard().url(
+            "🎬 Open Movie App",
+            `https://t.me/${meName(ctx)}?start=app`,
+          ),
+        })
+        .catch(() => {});
+    }
+    return ctx.reply(
+      `📱 *CineRadar Movie App*\n\nPoster, search, quality filter — sab Telegram ke andar. File chunte hi seedha yahin deliver hogi.`,
+      { parse_mode: "Markdown", reply_markup: (await miniAppKb()) ?? undefined },
+    );
+  });
+
+  // Admin: chat ke menu button ko Movie App bana do (sab users ke liye)
+  bot.command("setmenu", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("❌ Admin only.");
+    const url = await miniAppUrl();
+    if (!url) return ctx.reply("⚠️ Pehle /settings me public website link (https://…) set karein.");
+    try {
+      await ctx.api.setChatMenuButton({
+        menu_button: { type: "web_app", text: "🎬 Movies", web_app: { url } },
+      });
+      return ctx.reply(`✅ Menu button set: ${url}`);
+    } catch (e) {
+      return ctx.reply(`❌ Set nahi hua: ${(e as Error).message}`);
+    }
   });
 
   bot.command("link", async (ctx) => {

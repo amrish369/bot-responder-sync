@@ -350,6 +350,21 @@ export async function movieWebUrl(movieId: number): Promise<string> {
   return `${base}/m/${movieId}`;
 }
 
+/** Telegram Mini App URL (opens the catalog inside Telegram). */
+async function miniAppUrl(): Promise<string | null> {
+  const s = await getSettings();
+  const base = (s.public_site_url || "").replace(/\/+$/, "");
+  if (!/^https:\/\//i.test(base)) return null;
+  return `${base}/app`;
+}
+
+/** Inline keyboard with the "Open Movie App" web_app button (private chats only). */
+async function miniAppKb(): Promise<InlineKeyboard | null> {
+  const url = await miniAppUrl();
+  if (!url) return null;
+  return new InlineKeyboard().webApp("🎬 Open Movie App", url);
+}
+
 async function withBackupKb(
   kb?: InlineKeyboard | null,
   movieId?: number,

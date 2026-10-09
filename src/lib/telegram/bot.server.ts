@@ -985,6 +985,21 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     );
   });
 
+  bot.command("ai", async (ctx) => {
+    const q = String(ctx.match || "").trim();
+    if (!q) return tempReply(ctx, "🤖 Kuch bhi pucho: /ai movie kaise download karein?\nYa movie describe karo: /ai SRK hockey coach movie");
+    await ctx.replyWithChatAction("typing").catch(() => {});
+    const { aiGuide, aiResolveTitles } = await import("./ai.server");
+    const [answer, titles] = await Promise.all([aiGuide(q), aiResolveTitles(q)]);
+    const all = await fetchAllMovies();
+    const kb = new InlineKeyboard();
+    for (const t of titles) {
+      const hit = searchMovies(all, t)[0];
+      if (hit) kb.text(`⬇️ ${t}`.slice(0, 40), `send_${hit.id}`).row();
+    }
+    return tempReply(ctx, answer || "🤖 AI abhi busy hai, thodi der baad try karo.", { reply_markup: kb });
+  });
+
   bot.command("help", async (ctx) => {
     const helpText =
       `🎬 <b>CineRadar AI — Commands</b>\n\n` +
@@ -1891,6 +1906,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         }
         return renderSearchResults(ctx, parsedName, matches, 1);
       }
+      if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
       return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption);
     }
 
@@ -1922,8 +1938,28 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });
     }
 
+    if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
     return showTMDBRequestButtons(ctx, parsedName, null, null);
   });
+
+  async function tryAiResolve(ctx: Context, rawQuery: string, allMovies: MovieRow[]): Promise<boolean> {
+    try {
+      const { aiResolveTitles } = await import("./ai.server");
+      const titles = await aiResolveTitles(rawQuery);
+      for (const t of titles) {
+        if (t.toLowerCase().trim() === rawQuery.toLowerCase().trim()) continue;
+        const hits = searchMovies(allMovies, t);
+        if (hits.length) {
+          await tempReply(ctx, `🤖 AI ne samjha: *${escapeMarkdown(t)}*`, { parse_mode: "Markdown" });
+          await renderSearchResults(ctx, t, hits, 1);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error("[ai] resolve failed", e);
+    }
+    return false;
+  }
 
   async function showTMDBRequestButtons(ctx: Context, query: string, fallbackPoster: string | null, existingCaption: string | null) {
     let tmdbResults = await tmdbSearchMultiple(query, 8);

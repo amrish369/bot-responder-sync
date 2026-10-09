@@ -41,7 +41,7 @@ export async function aiResolveTitles(query: string): Promise<string[]> {
       { role: "user", content: query.slice(0, 300) },
     ],
     true,
-    150,
+    600,
   );
   if (!out) return [];
   try {
@@ -70,6 +70,6 @@ export async function aiGuide(question: string): Promise<string | null> {
       { role: "user", content: question.slice(0, 800) },
     ],
     false,
-    350,
+    900,
   );
 }

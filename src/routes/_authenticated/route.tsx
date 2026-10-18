@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, redirect, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, redirect, isRedirect, Link, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
 import { checkIsAdmin } from "@/lib/admin/admin.functions";
@@ -12,9 +12,14 @@ export const Route = createFileRoute("/_authenticated")({
     // Session lives in browser storage — skip during SSR/prerender so the
     // published build never crashes before the client can check the session.
     if (typeof window === "undefined") return {};
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) throw redirect({ to: "/auth" });
+      return { user: data.user };
+    } catch (e) {
+      if (isRedirect(e)) throw e;
+      throw redirect({ to: "/auth" });
+    }
   },
   component: Layout,
 });

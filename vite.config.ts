@@ -15,9 +15,9 @@ const publicBackendKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 
 // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "VITE_");
-  return {
+export default (configEnv: import("vite").ConfigEnv) => {
+  const env = loadEnv(configEnv.mode, process.cwd(), "VITE_");
+  return defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
@@ -28,5 +28,5 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(env.VITE_SUPABASE_PUBLISHABLE_KEY || publicBackendKey),
     },
   },
-  };
-});
+  })(configEnv);
+};

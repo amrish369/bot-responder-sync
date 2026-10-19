@@ -180,6 +180,7 @@ export interface TMDBMatch {
   tmdbId: number;
   poster: string | null;
   overview: string;
+  releaseDate?: string;
 }
 
 export async function tmdbSearchMultiple(query: string, maxResults = 5): Promise<TMDBMatch[]> {
@@ -192,6 +193,7 @@ export async function tmdbSearchMultiple(query: string, maxResults = 5): Promise
     tmdbId: m.id,
     poster: m.poster_path ? `${TMDB_IMG}${m.poster_path}` : null,
     overview: m.overview || "",
+    releaseDate: m.release_date || "",
   }));
 }
 

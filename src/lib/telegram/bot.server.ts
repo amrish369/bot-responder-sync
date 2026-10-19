@@ -1709,6 +1709,27 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       }
     }
 
+    if (msg.text && !msg.text.startsWith("/") && ctx.chat?.type === "private") {
+      const { data: wait } = await supabaseAdmin
+        .from("payload_store").select("data, expires_at").eq("key", `note_wait_${uid}`).maybeSingle();
+      if (wait && new Date(wait.expires_at as any).getTime() > Date.now()) {
+        await supabaseAdmin.from("payload_store").delete().eq("key", `note_wait_${uid}`);
+        const reqId = (wait.data as any)?.reqId;
+        const { data: req } = await supabaseAdmin.from("requests").select("title").eq("id", reqId).maybeSingle();
+        const note = msg.text.slice(0, 800);
+        await logChat(uid, "user", `[Request note #${reqId}] ${note}`);
+        for (const adminId of ADMIN_IDS()) {
+          const akb = new InlineKeyboard().text("💬 Custom Reply", `req_reply_${uid}`).row()
+            .text(`✅ Fulfill #${reqId}`, `rdi_${reqId}`);
+          await ctx.api.sendMessage(adminId,
+            `📝 Request Note #${reqId}\n\n🎬 ${req?.title ?? "?"}\n👤 ${await userDisplayName(uid)} (${uid})\n\n💬 ${note}`,
+            { reply_markup: akb }).catch(() => {});
+        }
+        await ctx.reply("✅ Aapka message request ke saath admin ko bhej diya gaya!").catch(() => {});
+        return;
+      }
+    }
+
     if (isA && (msg.video || msg.document)) {
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
       const fileKind = fileKindFromMessage(msg);
@@ -1955,6 +1976,29 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
     return showTMDBRequestButtons(ctx, parsedName, null, null);
   });
+
+  async function deliverToUser(ctx: Context, m: MovieRow) {
+    const uid = ctx.from!.id;
+    const caption =
+      `🎉 *Yeh movie hamare paas available hai — file bhej di!*\n\n` +
+      `🎬 *${escapeMarkdown(m.title)}* (${m.year || "?"})\n` +
+      `🌐 ${m.language || "N/A"} | 📺 ${m.quality || "N/A"}\n\n` +
+      `⏱️ *Yeh file kuch minute mein auto-delete ho jayegi. Forward karke save karein.*`;
+    const kb = new InlineKeyboard().url("⚡ 3x Fast Download ke liye Website Visit Karein", WEBSITE_URL);
+    try {
+      await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb, m.id) });
+      await logChat(uid, "bot", `[Auto-deliver on request] ${m.title}`);
+      if (ctx.chat?.type && ctx.chat.type !== "private") {
+        await tempReply(ctx, `📩 ${m.title} available thi — file aapke DM mein bhej di!`);
+      }
+    } catch {
+      const deepKb = new InlineKeyboard()
+        .url("▶️ Start Bot to Receive File", `https://t.me/${meName(ctx)}?start=get_${m.id}`);
+      await tempReply(ctx,
+        `📩 *${escapeMarkdown(m.title)}* available hai! Pehle bot start karo, file automatically aa jayegi.`,
+        { parse_mode: "Markdown", reply_markup: deepKb });
+    }
+  }
 
   async function tryAiResolve(ctx: Context, rawQuery: string, allMovies: MovieRow[]): Promise<boolean> {
     try {
@@ -2235,27 +2279,65 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
 
     if (data.startsWith("req_pick_")) {
       const rawQuery = decodeURIComponent(data.slice("req_pick_".length));
-      await ctx.answerCallbackQuery({ text: "🔍 TMDB pe dhundh raha hoon..." });
-      const tmdbResults = await tmdbSearchMultiple(rawQuery, 6);
+      await ctx.answerCallbackQuery({ text: "🔍 TMDB se verify kar raha hoon..." });
+      const [tmdbResults, allMovies] = await Promise.all([
+        tmdbSearchMultiple(rawQuery, 6),
+        fetchAllMovies(),
+      ]);
+      const findAvail = (title: string, year?: string): MovieRow | null => {
+        const hits = searchMovies(allMovies, title);
+        const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+        const exact = hits.filter((m) => norm(m.title) === norm(title));
+        const pool = exact.length ? exact : [];
+        if (year && year !== "?") {
+          const y = pool.find((m) => String(m.year) === year);
+          if (y) return y;
+          if (pool.some((m) => m.year)) return null;
+        }
+        return pool[0] ?? null;
+      };
+
       if (!tmdbResults.length) {
+        const direct = searchMovies(allMovies, rawQuery);
+        if (direct.length === 1) {
+          await deliverToUser(ctx, direct[0]);
+          return;
+        }
         const already = await findPendingRequest(uid, rawQuery);
         if (already) return ctx.reply("⚠️ Yeh movie already request ki hui hai!");
-        await insertRequest(uid, ctx.from.username || null, rawQuery);
-        await tempReply(ctx, `✅ Request bhej di: ${rawQuery}\n\n/myrequests se track karo.`);
+        const ins = await insertRequest(uid, ctx.from.username || null, rawQuery);
+        const nkb = new InlineKeyboard();
+        if (ins) nkb.text("✍️ Apna Message / Note Likhein (Optional)", `req_note_${ins.id}`);
+        await tempReply(ctx,
+          `✅ Request bhej di: ${rawQuery}\n\n❓ TMDB pe is naam ki movie verify nahi hui — admin manually check karega.\n/myrequests se track karo.`,
+          { reply_markup: nkb });
         for (const adminId of ADMIN_IDS()) {
-          await ctx.api.sendMessage(adminId, `📩 New Request\n\n🎬 ${rawQuery}\n👤 ${await userDisplayName(uid)} (${uid})`).catch(() => {});
+          await ctx.api.sendMessage(adminId, `📩 New Request (TMDB unverified)\n\n🎬 ${rawQuery}\n👤 ${await userDisplayName(uid)} (${uid})`).catch(() => {});
         }
         return;
       }
+
+      const options = tmdbResults.map((r) => ({ r, avail: findAvail(r.title, r.year) }));
+      // Single clear match that is already available → deliver automatically.
+      if (options.length === 1 && options[0].avail) {
+        await deliverToUser(ctx, options[0].avail);
+        return;
+      }
       const kb = new InlineKeyboard();
-      for (const r of tmdbResults) {
-        const label = `🎬 ${r.title} (${r.year}) — ${r.language}`.slice(0, 64);
-        const key = await storePayload({ title: r.title, year: r.year, language: r.language });
-        kb.text(label, `req_confirm_${key}`).row();
+      for (const { r, avail } of options) {
+        if (avail) {
+          kb.text(`✅ ${r.title} (${r.year}) — Abhi Payein`.slice(0, 64), `send_${avail.id}`).row();
+        } else {
+          const key = await storePayload({ title: r.title, year: r.year, language: r.language, releaseDate: r.releaseDate || "" });
+          kb.text(`📩 ${r.title} (${r.year}) — Request`.slice(0, 64), `req_confirm_${key}`).row();
+        }
       }
       kb.text("❌ Cancel", "noop");
+      const anyAvail = options.some((o) => o.avail);
       await tempReply(ctx,
-        `🔍 "${rawQuery}" ke liye TMDB pe yeh movies mili hain:\n\nSahi movie select karo — wahi request mein jayegi:`,
+        `🔍 "${rawQuery}" ke liye TMDB pe yeh movies mili hain:\n\n` +
+        (anyAvail ? `✅ = hamare paas available — tap karo, file turant aa jayegi\n` : "") +
+        `📩 = available nahi — tap karo, request admin ko jayegi`,
         { reply_markup: kb });
       return;
     }
@@ -2267,15 +2349,19 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       const title = stored.title;
       const year = stored.year || "";
       const lang = stored.language || "";
-      const requestName = year ? `${title} (${year})` : title;
+      const requestName = year && year !== "?" ? `${title} (${year})` : title;
       const already = await findPendingRequest(uid, requestName);
       if (already) return ctx.answerCallbackQuery({ text: `⚠️ "${requestName}" already requested!`, show_alert: true });
       const inserted = await insertRequest(uid, ctx.from.username || null, requestName);
       await ctx.answerCallbackQuery({ text: `✅ Request sent: ${requestName.slice(0, 40)}` });
+      const reason = stored.releaseDate !== undefined ? releaseReason(stored.releaseDate) + "\n" : "";
+      const nkb = new InlineKeyboard();
+      if (inserted) nkb.text("✍️ Apna Message / Note Likhein (Optional)", `req_note_${inserted.id}`);
       await tempReply(ctx,
         `✅ *Request Bhej Di!*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
-        (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") + `\n📋 /myrequests se track karo.`,
-        { parse_mode: "Markdown" });
+        (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") + reason +
+        `\n📥 Upload hote hi file aapko automatically mil jayegi.\n📋 /myrequests se track karo.`,
+        { parse_mode: "Markdown", reply_markup: nkb });
       for (const adminId of ADMIN_IDS()) {
         const adminKb = new InlineKeyboard()
           .text("💬 Custom Reply", `req_reply_${uid}`).row();
@@ -2286,6 +2372,24 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
           { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
       }
+      return;
+    }
+
+    if (data.startsWith("req_note_")) {
+      const reqId = Number(data.slice("req_note_".length));
+      if (!Number.isFinite(reqId)) return ctx.answerCallbackQuery();
+      await supabaseAdmin.from("payload_store").delete().eq("key", `note_wait_${uid}`);
+      await supabaseAdmin.from("payload_store").insert({
+        key: `note_wait_${uid}`,
+        data: { reqId } as any,
+        expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      });
+      await ctx.answerCallbackQuery();
+      await ctx.api.sendMessage(uid,
+        `💬 Apni baat likh kar bhejein (optional)\n\nJaise: Hindi Dubbed chahiye, 1080p, season 2, ya koi aur detail.\nAgle 15 minute mein jo message bhejoge woh request ke saath admin ko jayega.`,
+      ).catch(async () => {
+        await ctx.reply(`▶️ Note likhne ke liye pehle bot ko DM mein start karein: https://t.me/${meName(ctx)}`).catch(() => {});
+      });
       return;
     }
 

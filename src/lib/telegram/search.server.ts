@@ -99,8 +99,12 @@ export interface SearchOptions {
 
 function applyFilters(list: MovieRow[], opts: SearchOptions): MovieRow[] {
   return list.filter((m) => {
-    if (opts.language && (m.language || "").toLowerCase() !== opts.language.toLowerCase())
-      return false;
+    if (opts.language) {
+      const ml = (m.language || "").toLowerCase();
+      const ol = opts.language.toLowerCase();
+      const multi = /dual|multi/.test(ml) || !ml;
+      if (ml !== ol && !(multi && ol === "hindi")) return false;
+    }
     if (opts.quality && (m.quality || "").toLowerCase() !== opts.quality.toLowerCase())
       return false;
     if (opts.year && String(m.year) !== String(opts.year)) return false;
@@ -146,8 +150,7 @@ export function smartSearch(
   for (const m of filtered) {
     const t = normalizeTitle(m.title);
     const orig = normalizeTitle((m as any).original_title || "");
-    const st = ((m as any).search_text as string | null) || "";
-    if (t.includes(qNorm) || orig.includes(qNorm) || st.includes(qNorm)) consider(m, 0.2);
+    if (t.includes(qNorm) || orig.includes(qNorm)) consider(m, 0.2);
   }
   // Tier 4b — space-insensitive substring ("spiderman" ↔ "spider man"): 0.2.
   const cq = qNorm.replace(/\s+/g, "");
@@ -161,10 +164,9 @@ export function smartSearch(
   // Tier 5 — Fuse fuzzy with proper config (includeScore, shouldSort, distance).
   const fuse = new Fuse(filtered, {
     keys: [
-      { name: "title", weight: 0.5 },
+      { name: "title", weight: 0.6 },
       { name: "original_title", weight: 0.2 },
       { name: "aliases", weight: 0.2 },
-      { name: "search_text", weight: 0.1 },
     ],
     threshold: dynamicThreshold(qNorm || q),
     distance: 100,
@@ -175,6 +177,7 @@ export function smartSearch(
     isCaseSensitive: false,
   });
   for (const r of fuse.search(qNorm || q)) {
+    if ((r.score ?? 1) > 0.3) continue; // drop weak/unrelated fuzzy hits
     // Offset fuzzy scores so exact/normalized/alias hits win.
     consider(r.item, 0.25 + (r.score ?? 0.5));
   }
@@ -239,12 +242,12 @@ export function fuzzySuggest(list: MovieRow[], rawQuery: string, limit = 5): Mov
       { name: "original_title", weight: 0.2 },
       { name: "aliases", weight: 0.3 },
     ],
-    threshold: Math.min(0.6, dynamicThreshold(qNorm) + 0.15),
+    threshold: Math.min(0.45, dynamicThreshold(qNorm) + 0.05),
     ignoreLocation: true,
     minMatchCharLength: 2,
     includeScore: true,
   });
-  return fuse.search(qNorm).slice(0, limit).map((r) => r.item);
+  return fuse.search(qNorm).filter((r) => (r.score ?? 1) <= 0.3).slice(0, limit).map((r) => r.item);
 }
 
 // ── Dedupe + rank ──────────────────────────────────────────────

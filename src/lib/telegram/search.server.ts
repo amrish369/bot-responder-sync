@@ -177,6 +177,7 @@ export function smartSearch(
     isCaseSensitive: false,
   });
   for (const r of fuse.search(qNorm || q)) {
+    if ((r.score ?? 1) > 0.3) continue; // drop weak/unrelated fuzzy hits
     // Offset fuzzy scores so exact/normalized/alias hits win.
     consider(r.item, 0.25 + (r.score ?? 0.5));
   }
@@ -246,7 +247,7 @@ export function fuzzySuggest(list: MovieRow[], rawQuery: string, limit = 5): Mov
     minMatchCharLength: 2,
     includeScore: true,
   });
-  return fuse.search(qNorm).slice(0, limit).map((r) => r.item);
+  return fuse.search(qNorm).filter((r) => (r.score ?? 1) <= 0.3).slice(0, limit).map((r) => r.item);
 }
 
 // ── Dedupe + rank ──────────────────────────────────────────────

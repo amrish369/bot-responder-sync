@@ -274,6 +274,20 @@ async function tempPhoto(ctx: Context, photo: string, opts: any = {}) {
   return msg;
 }
 
+function langOk(ml: string | null, want: string): boolean {
+  const a = (ml || "").toLowerCase(), b = want.toLowerCase();
+  return a === b || (b === "hindi" && (!a || /dual|multi/.test(a)));
+}
+
+function releaseReason(date: string | null | undefined): string {
+  if (!date) return "\n❓ Release date pata nahi — shayad abhi announce hi hui hai.";
+  const d = new Date(date);
+  const nice = d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+  if (d.getTime() > Date.now())
+    return `\n📅 *Yeh movie abhi release nahi hui hai!*\nExpected release: *${nice}*\nRelease ke baad hi file aayegi — abhi pre-request kar lo.`;
+  return `\n❌ *Movie ${nice} ko release ho chuki hai, par abhi hamare paas available nahi hai.*\nRequest karo — admin jaldi upload karega.`;
+}
+
 // ── DB search ──
 function searchMovies(list: MovieRow[], query: string, filters: any = {}): MovieRow[] {
   return smartSearch(list, query, {
@@ -1895,7 +1909,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
 
       let matches = searchMovies(allMovies, parsedName);
       if (parsedYear) matches = matches.filter((m) => String(m.year) === parsedYear);
-      if (parsedLang) matches = matches.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+      if (parsedLang) matches = matches.filter((m) => langOk(m.language, parsedLang));
 
       if (matches.length > 0) {
         if (tmdb.Poster) {
@@ -1907,12 +1921,12 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         return renderSearchResults(ctx, parsedName, matches, 1);
       }
       if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
-      return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption);
+      return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption + releaseReason(tmdb._releaseDate));
     }
 
     let results = searchMovies(allMovies, parsedName);
     if (parsedYear) results = results.filter((m) => String(m.year) === parsedYear);
-    if (parsedLang) results = results.filter((m) => (m.language || "").toLowerCase() === parsedLang.toLowerCase());
+    if (parsedLang) results = results.filter((m) => langOk(m.language, parsedLang));
     if (results.length > 0) {
       await renderSearchResults(ctx, parsedName, results, 1);
       return;
@@ -1985,7 +1999,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     if (display.length > 0) {
       if (fallbackPoster) {
         return tempPhoto(ctx, fallbackPoster, {
-          caption: (existingCaption || "") + `\n❌ Abhi hamare paas nahi hai.\n\nKaunsi movie chahiye? Select karo:`,
+          caption: (existingCaption || "") + `\n\nKaunsi movie chahiye? Select karo:`,
           parse_mode: "Markdown", reply_markup: kb,
         });
       }
@@ -1994,7 +2008,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         { parse_mode: "Markdown", reply_markup: kb });
     }
     return tempReply(ctx,
-      `❌ *"${safeQuery}"* TMDB pe bhi nahi mili.\n\nNaam thoda alag ho sakta hai — check karo:\n• Spelling sahi hai?\n• Hindi film ka English naam try karo\n\nPhir bhi request karna chahte ho?`,
+      `❓ *"${safeQuery}"* naam ki koi movie catalog mein nahi mili (na hamare paas, na TMDB pe).\n\nNaam thoda alag ho sakta hai — check karo:\n• Spelling sahi hai?\n• Hindi film ka English naam try karo\n\nPhir bhi request karna chahte ho?`,
       { parse_mode: "Markdown", reply_markup: kb });
   }
 

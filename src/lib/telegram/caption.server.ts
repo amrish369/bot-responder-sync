@@ -1,7 +1,15 @@
 export const KNOWN_LANGUAGES = [
   "hindi", "english", "tamil", "telugu", "malayalam", "kannada",
-  "dual audio", "multi audio", "punjabi", "bengali", "marathi",
+  "dual audio", "multi audio", "punjabi", "bengali", "marathi", "gujarati",
 ];
+
+// Short/typo language codes → canonical language
+const LANG_ALIASES: Record<string, string> = {
+  hin: "hindi", hind: "hindi", hindii: "hindi", hindu: "hindi",
+  eng: "english", engl: "english", englis: "english", englsh: "english", inglish: "english",
+  tam: "tamil", tel: "telugu", telgu: "telugu", mal: "malayalam", kan: "kannada", kann: "kannada",
+  ben: "bengali", bangla: "bengali", mar: "marathi", pun: "punjabi", guj: "gujarati",
+};
 
 const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
 
@@ -9,8 +17,11 @@ const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K"
 const JUNK_TOKENS = [
   "hdts","hdtc","hdcam","camrip","cam","ts","tc","predvd","pre dvd","dvdscr","hdrip","dvdrip","brrip","bdrip",
   "bluray","blu ray","web dl","webdl","web rip","webrip","web","hdtv","amzn","nf","hotstar","zee5","jiocinema",
-  "clean","proper","uncut","hevc","x264","x265","h264","h265","10bit","8bit","aac","dd5 1","ddp5 1","5 1","2 0",
-  "esub","esubs","msubs","subs","sub","org","original","line","audio","dubbed","hq","hdr10","sdr","mkv","mp4","avi",
+  "clean","proper","uncut","hevc","x264","x265","h264","h265","h 264","h 265","10bit","8bit","aac","dd5 1","ddp5 1","5 1","2 0",
+  "aac2 0","aac2","aac5 1","ddp 5 1","ddp 5","ddp","dd 5 1","dd","ac3","eac3","atmos","dts","truehd","flac","opus",
+  "ds4k","4k","uhd","hdr","dv","dolby","vision","sdr","imax","ott","repack","remux","rerip","internal","limited",
+  "jh","psa","yts","rarbg","galaxyrg","tg","hq","hc","hdrip","sony","sonyliv","jio","prime","netflix","dsnp","aha","sun","sunnxt",
+  "esub","esubs","msubs","subs","sub","org","original","line","audio","dubbed","hdr10","mkv","mp4","avi",
   "full movie","movie","film","print","new","latest","exclusive","uploaded","by","join","telegram","channel",
 ];
 

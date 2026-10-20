@@ -130,36 +130,50 @@ async function sendMovieFile(api: any, chatId: number | string, movie: MovieRow,
   return api.sendVideo(chatId, movie.file_id, opts);
 }
 
-const QUALITY_TOKENS = ["2160p","1440p","1080p","720p","540p","480p","360p","4K","UHD","HDR","HD","SD"];
-function parseCaption(raw: string): { name: string; year: number | null; language: string | null; quality: string | null } {
-  const original = (raw || "").replace(/[\r\n]+/g, " ").trim();
-  if (!original) return { name: "", year: null, language: null, quality: null };
-  let s = original;
-  const yearM = s.match(/\b(19\d{2}|20\d{2})\b/);
-  const year = yearM ? Number(yearM[0]) : null;
-  if (yearM) s = s.replace(yearM[0], " ");
-  let quality: string | null = null;
-  for (const q of QUALITY_TOKENS) {
-    const re = new RegExp(`\\b${q}\\b`, "i");
-    if (re.test(s)) {
-      const low = q.toLowerCase();
-      quality = low === "4k" || low === "uhd" ? "4K" : low === "hdr" ? "HDR" : q.toLowerCase();
-      s = s.replace(re, " ");
-      break;
+function parseCaption(raw: string) {
+  return parseCaptionClean(raw);
+}
+
+/** Smart auto-delivery of a newly saved/fixed movie to all matching pending requests. */
+async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise<number> {
+  let delivered = 0;
+  try {
+    const pending = await listPendingRequests();
+    const titles = [movie.title, movie.original_title || "", ...((movie as any).aliases || [])].filter(Boolean);
+    const matched = pending.filter((req) => {
+      const reqYear = Number((req.title.match(/\((\d{4})\)/) || [])[1]) || null;
+      if (reqYear && movie.year && Math.abs(reqYear - movie.year) > 1) return false;
+      return titles.some((t: string) => requestMatchesMovie(req.title, t));
+    });
+    const seen = new Set<number>();
+    const sizeLabel = fmtSize(movie.file_size);
+    for (const req of matched) {
+      if (seen.has(req.user_id)) { await fulfillRequest(req.id); continue; }
+      seen.add(req.user_id);
+      try {
+        const dmKb = new InlineKeyboard()
+          .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
+          .url("📷 Instagram (Optional)", INSTAGRAM_URL);
+        await sendMovieFile(api, req.user_id, movie, {
+          caption:
+            `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
+            `🎬 *${escapeMarkdown(movie.title)}* (${movie.year || "?"})\n` +
+            `🌐 ${movie.language || "N/A"} | 📺 ${movie.quality || "N/A"}` +
+            (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
+            `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
+          parse_mode: "Markdown",
+          reply_markup: await withBackupKb(dmKb, movie.id),
+        });
+        await fulfillRequest(req.id);
+        delivered++;
+      } catch (e) {
+        console.error("[auto-deliver]", req.user_id, (e as Error).message);
+      }
     }
+  } catch (e) {
+    console.error("[auto-deliver scan]", (e as Error).message);
   }
-  let language: string | null = null;
-  const sortedLangs = [...KNOWN_LANGUAGES].sort((a, b) => b.length - a.length);
-  for (const lang of sortedLangs) {
-    const re = new RegExp(`\\b${lang}\\b`, "i");
-    if (re.test(s)) {
-      language = lang.charAt(0).toUpperCase() + lang.slice(1);
-      s = s.replace(re, " ");
-      break;
-    }
-  }
-  const name = s.replace(/[._\-\[\]\(\)]+/g, " ").replace(/\s+/g, " ").trim();
-  return { name, year, language, quality };
+  return delivered;
 }
 
 function movieBtnLabel(m: MovieRow): string {

@@ -97,6 +97,30 @@ function scoreCandidate(query: string, candTitle: string, candOrig: string): num
   return qt.size ? overlap / qt.size * 0.6 : 0;
 }
 
+/** Full metadata for a specific TMDB movie id (admin-picked match). */
+export async function tmdbDetailById(id: number): Promise<VerifiedMetadata | null> {
+  const detail = await tmdbGet<any>(`/movie/${id}`, { language: "en-US", append_to_response: "external_ids" });
+  if (!detail) return null;
+  const release = detail.release_date || null;
+  const year = release ? Number(release.slice(0, 4)) : null;
+  return {
+    media_type: "Movie",
+    tmdb_id: id,
+    imdb_id: detail.external_ids?.imdb_id ?? detail.imdb_id ?? null,
+    title: detail.title || detail.original_title || "",
+    original_title: detail.original_title || "",
+    year: Number.isFinite(year as number) ? (year as number) : null,
+    language: LANG_MAP[detail.original_language] || detail.original_language?.toUpperCase() || "N/A",
+    overview: detail.overview || "",
+    genres: detail.genres?.map((g: any) => g.name).join(", ") || "",
+    poster_url: detail.poster_path ? `${TMDB_IMG}${detail.poster_path}` : null,
+    backdrop_url: detail.backdrop_path ? `https://image.tmdb.org/t/p/w1280${detail.backdrop_path}` : null,
+    runtime: detail.runtime ?? null,
+    confidence: 1,
+    release_date: release,
+  };
+}
+
 /** Auto-verify: search movie + tv, pick the best confident match. */
 export async function tmdbVerify(
   query: string,

@@ -77,6 +77,8 @@ import {
 } from "./storage.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { enqueueDelete } from "./delete-queue.server";
+import { parseCaption as parseCaptionClean, requestMatchesMovie, stripJunk } from "./caption.server";
+import { tmdbDetailById } from "./tmdb.server";
 
 // ─── helpers ────────────────────────────────────────────────
 function sanitize(s: string | undefined): string {

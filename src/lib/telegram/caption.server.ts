@@ -95,6 +95,13 @@ export function parseCaption(raw: string): ParsedCaption {
       s = s.replace(re, " ");
     }
   }
+  for (const [code, lang] of Object.entries(LANG_ALIASES)) {
+    const re = new RegExp(`\\b${code}\\b`, "gi");
+    if (re.test(s)) {
+      if (!langs.includes(lang)) langs.push(lang);
+      s = s.replace(re, " ");
+    }
+  }
   let language: string | null = null;
   const cap = (l: string) => l.replace(/\b\w/g, (c) => c.toUpperCase());
   if (langs.some((l) => l.includes("audio"))) language = cap(langs.find((l) => l.includes("audio"))!);
@@ -106,7 +113,9 @@ export function parseCaption(raw: string): ParsedCaption {
   const partM = s.match(/\b(?:part|pt|chapter|vol)\s*(\d{1,2})\b/i);
   if (partM) part = Number(partM[1]);
 
-  const name = stripJunk(s);
+  let name = stripJunk(s);
+  // Drop trailing stray single letters / bare numbers left by tags (e.g. "Tam T", "H 264")
+  name = name.replace(/(\s+(?:[a-z]|\d{3,}))+$/i, "").trim();
   return { name, year, language, quality, part };
 }
 

@@ -548,8 +548,8 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   }
 
   const finalTitle = verified?.title || cleanName;
-  const finalYear = verified?.year ?? (yearNum && Number.isFinite(yearNum) ? yearNum : null);
-  const finalLang = pend.language ?? verified?.language ?? null;
+  const finalYear = verified?.year ?? yearHint ?? null;
+  const finalLang = pend.language ?? reparsed.language ?? verified?.language ?? null;
   const aliases = generateAliases(finalTitle, verified?.original_title || null);
   const searchText = buildSearchText({
     title: finalTitle,

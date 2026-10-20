@@ -533,15 +533,21 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   const yearNum = pend.year ? Number(String(pend.year).trim()) : null;
   const finalQuality = pend.quality || qualityFromSize(pend.file_size) || null;
 
+  // Clean junk (HDTS, CLEAN, Powered By…, emojis) before TMDB
+  const reparsed = parseCaptionClean(pend.name);
+  const cleanName = reparsed.name || stripJunk(pend.name) || pend.name.trim();
+  const yearHint = yearNum && Number.isFinite(yearNum) ? yearNum : reparsed.year;
+
   // Auto TMDB verification
   let verified: Awaited<ReturnType<typeof tmdbVerify>> = null;
   try {
-    verified = await tmdbVerify(pend.name.trim(), yearNum);
+    verified = await tmdbVerify(cleanName, yearHint);
+    if (verified && verified.confidence < 0.85) verified = null; // weak → admin picks
   } catch (e) {
     console.error("[tmdbVerify]", (e as Error).message);
   }
 
-  const finalTitle = verified?.title || pend.name.trim();
+  const finalTitle = verified?.title || cleanName;
   const finalYear = verified?.year ?? (yearNum && Number.isFinite(yearNum) ? yearNum : null);
   const finalLang = pend.language ?? verified?.language ?? null;
   const aliases = generateAliases(finalTitle, verified?.original_title || null);
@@ -605,45 +611,32 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     .text("❌ No", "dismiss_post");
   const reply = await ctx.reply(caption, { parse_mode: "Markdown", reply_markup: kb });
 
-  try {
-    const pending = await listPendingRequests();
-    const fuse = new Fuse(pending, {
-      keys: ["title"],
-      threshold: 0.45,
-      ignoreLocation: true,
-      minMatchCharLength: 3,
-    });
-    const matched = fuse.search(inserted.title).map((r) => r.item);
-    let delivered = 0;
-    const seen = new Set<number>();
-    for (const req of matched) {
-      if (seen.has(req.user_id)) continue;
-      seen.add(req.user_id);
-      try {
-        const dmKb = new InlineKeyboard()
-          .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
-          .url("📷 Instagram (Optional)", INSTAGRAM_URL);
-        await sendMovieFile(ctx.api, req.user_id, inserted, {
-          caption:
-            `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
-            `🎬 *${escapeMarkdown(inserted.title)}* (${inserted.year || "?"})\n` +
-            `🌐 ${inserted.language || "N/A"} | 📺 ${inserted.quality || "N/A"}` +
-            (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
-            `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
-          parse_mode: "Markdown",
-          reply_markup: await withBackupKb(dmKb, inserted.id),
-        });
-        await fulfillRequest(req.id);
-        delivered++;
-      } catch (e) {
-        console.error("[auto-deliver]", req.user_id, (e as Error).message);
+  // TMDB match nahi mila → admin ko TMDB options ke buttons
+  if (!verified) {
+    try {
+      const opts = await tmdbSearchMultiple(cleanName, 5);
+      if (opts.length) {
+        const okb = new InlineKeyboard();
+        for (const o of opts) {
+          const key = await storePayload({ movieId: inserted.id, tmdbId: o.tmdbId });
+          okb.text(`🎬 ${o.title} (${o.year}) • ${o.language}`.slice(0, 60), `tmfix_${key}`).row();
+        }
+        okb.text("✏️ Jaisa hai waisa rakhein", "dismiss_post");
+        await ctx.reply(
+          `⚠️ TMDB par exact match nahi mila: "${cleanName}"\nSahi movie chuniye — title/year/poster auto-fix ho jayega:`,
+          { reply_markup: okb },
+        );
+      } else {
+        await ctx.reply(`⚠️ TMDB par "${cleanName}" nahi mila. /edit ${inserted.id} se naam theek karein.`);
       }
+    } catch (e) {
+      console.error("[tmdb options]", (e as Error).message);
     }
-    if (delivered > 0) {
-      await ctx.reply(`📨 Auto-delivered to ${delivered} requesting user(s).`).catch(() => {});
-    }
-  } catch (e) {
-    console.error("[auto-deliver scan]", (e as Error).message);
+  }
+
+  const delivered = await autoDeliverPending(ctx.api, inserted);
+  if (delivered > 0) {
+    await ctx.reply(`📨 Auto-delivered to ${delivered} requesting user(s).`).catch(() => {});
   }
   return reply;
 }

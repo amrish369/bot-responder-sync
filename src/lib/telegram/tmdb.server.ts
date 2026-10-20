@@ -122,7 +122,20 @@ export async function tmdbDetailById(id: number): Promise<VerifiedMetadata | nul
 }
 
 /** Auto-verify: search movie + tv, pick the best confident match. */
-export async function tmdbVerify(
+/** Progressive fallback: drop trailing words until TMDB finds something. */
+export async function tmdbVerify(query: string, yearHint?: number | null): Promise<VerifiedMetadata | null> {
+  const words = query.replace(/[._]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  for (let n = words.length; n >= 1 && n >= Math.min(words.length, 1); n--) {
+    const q = words.slice(0, n).join(" ");
+    if (n < words.length && q.length < 3) break;
+    const r = await tmdbVerifyOnce(q, yearHint);
+    if (r) return r;
+    if (words.length - n >= 3) break;
+  }
+  return null;
+}
+
+async function tmdbVerifyOnce(
   query: string,
   yearHint?: number | null,
 ): Promise<VerifiedMetadata | null> {
@@ -208,6 +221,18 @@ export interface TMDBMatch {
 }
 
 export async function tmdbSearchMultiple(query: string, maxResults = 5): Promise<TMDBMatch[]> {
+  const words = query.replace(/[._]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  for (let n = words.length; n >= 1; n--) {
+    const q = words.slice(0, n).join(" ");
+    if (n < words.length && q.length < 3) break;
+    const r = await tmdbSearchOnce(q, maxResults);
+    if (r.length) return r;
+    if (words.length - n >= 3) break;
+  }
+  return [];
+}
+
+async function tmdbSearchOnce(query: string, maxResults: number): Promise<TMDBMatch[]> {
   const data = await tmdbGet<any>("/search/movie", { query, language: "en-US", include_adult: false, page: 1 });
   if (!data?.results?.length) return [];
   return data.results.slice(0, maxResults).map((m: any) => ({

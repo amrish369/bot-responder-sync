@@ -2455,6 +2455,39 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       }
     }
 
+    if (data.startsWith("tmfix_")) {
+      if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
+      const p = await consumePayload(data.slice("tmfix_".length));
+      if (!p) return ctx.answerCallbackQuery({ text: "⌛ Option expire ho gaya", show_alert: true });
+      const meta = await tmdbDetailById(Number(p.tmdbId));
+      const cur = await fetchMovieById(Number(p.movieId));
+      if (!meta || !cur) return ctx.answerCallbackQuery({ text: "❌ TMDB/movie nahi mili", show_alert: true });
+      const aliases = generateAliases(meta.title, meta.original_title || null);
+      const { movie: fixed, error } = await updateMovie(cur.id, {
+        title: meta.title,
+        year: meta.year,
+        language: cur.language || meta.language,
+        tmdb_id: meta.tmdb_id,
+        imdb_id: meta.imdb_id,
+        original_title: meta.original_title,
+        poster_url: meta.poster_url,
+        backdrop_url: meta.backdrop_url,
+        overview: meta.overview,
+        genres: meta.genres,
+        runtime: meta.runtime,
+        media_type: meta.media_type,
+        aliases,
+        search_text: buildSearchText({ title: meta.title, original_title: meta.original_title, aliases } as any),
+        tmdb_verified: true,
+      } as any);
+      if (!fixed) return ctx.answerCallbackQuery({ text: `❌ ${error}`, show_alert: true });
+      await ctx.answerCallbackQuery({ text: "✅ TMDB se fix ho gaya" });
+      await ctx.editMessageText(`✅ Fixed: ${fixed.title} (${fixed.year || "?"}) — ID ${fixed.id}`).catch(() => {});
+      const n = await autoDeliverPending(ctx.api, fixed);
+      if (n > 0) await ctx.reply(`📨 Auto-delivered to ${n} requesting user(s).`).catch(() => {});
+      return;
+    }
+
     if (data.startsWith("post_to_channel_")) {
       if (!isAdmin(uid)) return ctx.answerCallbackQuery({ text: "❌ Admin only" });
       const id = Number(data.slice("post_to_channel_".length));

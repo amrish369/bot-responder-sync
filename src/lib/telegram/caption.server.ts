@@ -53,6 +53,9 @@ export interface ParsedCaption {
 /** Remove promo tails, handles, urls, emojis and encode tags. */
 export function stripJunk(raw: string): string {
   let s = (raw || "").replace(/[\r\n]+/g, " ");
+  // Fancy small-caps promo words ("Pʟᴇᴀꜱᴇ Fᴏʀᴡᴀʀᴅ…") and forward/save notices
+  s = s.replace(/\S*[\u0250-\u02AF\u1D00-\u1DBF\uA720-\uA7FF]\S*/g, " ");
+  s = s.replace(/\b(please\s+)?forward\s+(your|this|the)\b.*$/i, " ");
   s = s.replace(/\b(powered|uploaded|presented|shared|brought)\s*by\b.*$/i, " ");
   s = s.replace(/https?:\/\/\S+|www\.\S+|t\.me\/\S+|@[\w]+/gi, " ");
   s = s.replace(/[\p{Extended_Pictographic}\u2600-\u27BF\uFE0F\u200D]/gu, " ");

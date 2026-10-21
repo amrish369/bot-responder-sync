@@ -37,9 +37,9 @@ function extractFile(msg: any): { file_id: string; file_size: number | null; fil
  * Index (or refresh) one storage-channel post as a movie row.
  * Only runs for the configured storage channel and when auto-index is ON.
  */
-export async function indexChannelPost(msg: any, isEdit = false): Promise<IndexResult> {
+export async function indexChannelPost(msg: any, isEdit = false, force = false): Promise<IndexResult> {
   const s = await getSettings();
-  if (!s.auto_index) return { status: "skipped", reason: "auto-index off" };
+  if (!s.auto_index && !force) return { status: "skipped", reason: "auto-index off" };
 
   const chatId = Number(msg?.chat?.id);
   if (!Number.isFinite(chatId) || chatId !== Number(s.storage_channel_id)) {

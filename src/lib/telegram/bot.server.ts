@@ -1491,6 +1491,49 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     return ctx.reply(`✅ Storage channel set to \`${id}\``, { parse_mode: "Markdown" });
   });
 
+  // ── Channel Range Scanner: purani storage-channel files DB me import ──
+  const runScanAndReport = async (ctx: Context, p: any) => {
+    const { runScanBatch } = await import("./scanner.server");
+    const helper = Number(ctx.from?.id);
+    const r = await runScanBatch(ctx.api, helper, p);
+    const kb = r.running ? new InlineKeyboard().text("▶️ Aage Scan Karein", "scan_continue") : undefined;
+    await ctx.reply(
+      `🔎 <b>Channel Scan</b> (${r.from} → ${r.to})\n\n` +
+        `📍 Ab tak: <b>${Math.min(r.next - 1, r.to)}</b>\n` +
+        `✅ Naye add: <b>${r.inserted}</b>\n♻️ Update: <b>${r.updated}</b>\n` +
+        `⏭ Pehle se the: <b>${r.skipped}</b>\n📭 Khali/non-file: <b>${r.empty}</b>\n❌ Error: <b>${r.errors}</b>\n\n` +
+        (r.running ? `Aage badhne ke liye button dabayein ya /scan likhein.` : `🎉 Scan poora ho gaya!`),
+      { parse_mode: "HTML", reply_markup: kb },
+    );
+  };
+
+  bot.command("scan", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
+    if (ctx.chat?.type !== "private") return ctx.reply("Ye command bot ki private chat me chalayein.");
+    const { getScanProgress, newScan } = await import("./scanner.server");
+    const args = (ctx.message?.text ?? "").split(/\s+/).slice(1).map(Number);
+    let p: any;
+    if (args.length >= 2 && args[0] > 0 && args[1] >= args[0]) {
+      p = newScan(args[0], args[1]);
+      await ctx.reply(`🚀 Scan shuru: message ${args[0]} se ${args[1]} tak. Thoda intezaar karein…`);
+    } else {
+      p = await getScanProgress();
+      if (!p || !p.running) {
+        return ctx.reply("Usage: /scan <start_id> <end_id>\nExample: /scan 1 2100\n\nStorage channel ke purane posts check karke saari files DB me add ho jayengi (duplicates skip).");
+      }
+    }
+    await runScanAndReport(ctx, p);
+  });
+
+  bot.callbackQuery("scan_continue", async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) return ctx.answerCallbackQuery({ text: "Admin only" });
+    await ctx.answerCallbackQuery({ text: "Scan chal raha hai…" });
+    const { getScanProgress } = await import("./scanner.server");
+    const p = await getScanProgress();
+    if (!p || !p.running) return ctx.reply("Koi scan chal nahi raha. /scan <start> <end> se shuru karein.");
+    await runScanAndReport(ctx, p);
+  });
+
   bot.command("migrate_old_files", async (ctx) => {
     if (!isAdmin(ctx.from?.id)) return ctx.reply("⛔ Admin Only Command");
     const arg = (ctx.message?.text ?? "").replace("/migrate_old_files", "").trim();

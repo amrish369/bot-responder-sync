@@ -136,6 +136,17 @@ function parseCaption(raw: string) {
   return parseCaptionClean(raw);
 }
 
+/** Chats currently sending "permanent" messages (skip auto-delete). */
+const keepChats = new Map<number, number>();
+async function keepMsg<T>(chatId: number, fn: () => Promise<T>): Promise<T> {
+  const id = Number(chatId);
+  keepChats.set(id, (keepChats.get(id) || 0) + 1);
+  try { return await fn(); } finally {
+    const n = (keepChats.get(id) || 1) - 1;
+    if (n <= 0) keepChats.delete(id); else keepChats.set(id, n);
+  }
+}
+
 /** Smart auto-delivery of a newly saved/fixed movie to all matching pending requests. */
 async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise<number> {
   let delivered = 0;
@@ -156,7 +167,8 @@ async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise
         const dmKb = new InlineKeyboard()
           .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
           .url("📷 Instagram (Optional)", INSTAGRAM_URL);
-        await sendMovieFile(api, req.user_id, movie, {
+        const kbFinal = await withBackupKb(dmKb, movie.id);
+        await keepMsg(req.user_id, () => sendMovieFile(api, req.user_id, movie, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
             `🎬 *${escapeMarkdown(movie.title)}* (${movie.year || "?"})\n` +
@@ -164,8 +176,8 @@ async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise
             (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
             `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
           parse_mode: "Markdown",
-          reply_markup: await withBackupKb(dmKb, movie.id),
-        });
+          reply_markup: kbFinal,
+        }));
         await fulfillRequest(req.id);
         delivered++;
       } catch (e) {
@@ -672,7 +684,7 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         if (Number.isFinite(chatId)) {
           const s = await getSettings();
           const storage = Number(s.storage_channel_id);
-          if (s.autodelete_status && chatId !== storage) {
+          if (s.autodelete_status && chatId !== storage && !keepChats.has(chatId)) {
             // grammY transformers can receive either Telegram's response envelope
             // or the already-unwrapped result depending on the active API client.
             const response: any = res as any;
@@ -1730,9 +1742,10 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         for (const adminId of ADMIN_IDS()) {
           const akb = new InlineKeyboard().text("💬 Custom Reply", `req_reply_${uid}`).row()
             .text(`✅ Fulfill #${reqId}`, `rdi_${reqId}`);
-          await ctx.api.sendMessage(adminId,
-            `📝 Request Note #${reqId}\n\n🎬 ${req?.title ?? "?"}\n👤 ${await userDisplayName(uid)} (${uid})\n\n💬 ${note}`,
-            { reply_markup: akb }).catch(() => {});
+          const nm = await userDisplayName(uid);
+          await keepMsg(adminId, () => ctx.api.sendMessage(adminId,
+            `📝 Request Note #${reqId}\n\n🎬 ${req?.title ?? "?"}\n👤 ${nm} (${uid})\n\n💬 ${note}`,
+            { reply_markup: akb })).catch(() => {});
         }
         await ctx.reply("✅ Aapka message request ke saath admin ko bhej diya gaya!").catch(() => {});
         return;
@@ -2321,7 +2334,8 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
           `✅ Request bhej di: ${rawQuery}\n\n❓ TMDB pe is naam ki movie verify nahi hui — admin manually check karega.\n/myrequests se track karo.`,
           { reply_markup: nkb });
         for (const adminId of ADMIN_IDS()) {
-          await ctx.api.sendMessage(adminId, `📩 New Request (TMDB unverified)\n\n🎬 ${rawQuery}\n👤 ${await userDisplayName(uid)} (${uid})`).catch(() => {});
+          const nm = await userDisplayName(uid);
+          await keepMsg(adminId, () => ctx.api.sendMessage(adminId, `📩 New Request (TMDB unverified)\n\n🎬 ${rawQuery}\n👤 ${nm} (${uid})`)).catch(() => {});
         }
         return;
       }
@@ -2375,11 +2389,12 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         const adminKb = new InlineKeyboard()
           .text("💬 Custom Reply", `req_reply_${uid}`).row();
         if (inserted) adminKb.text(`✅ Fulfill #${inserted.id}`, `rdi_${inserted.id}`);
-        await ctx.api.sendMessage(adminId,
+        const nm = await userDisplayName(uid);
+        await keepMsg(adminId, () => ctx.api.sendMessage(adminId,
           `📩 *New Movie Request*\n\n🎬 *${escapeMarkdown(requestName)}*\n` +
           (lang ? `🌐 ${escapeMarkdown(lang)}\n` : "") +
-          `👤 ${escapeMarkdown(await userDisplayName(uid))} (${uid})`,
-          { parse_mode: "Markdown", reply_markup: adminKb }).catch(() => {});
+          `👤 ${escapeMarkdown(nm)} (${uid})`,
+          { parse_mode: "Markdown", reply_markup: adminKb })).catch(() => {});
       }
       return;
     }

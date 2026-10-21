@@ -38,42 +38,47 @@ export function newScan(from: number, to: number): ScanProgress {
  * chat (the admin), read, then the forwarded copy is deleted immediately.
  * Processes up to `batch` message IDs, keeping time under the webhook limit.
  */
-export async function runScanBatch(api: any, helperChatId: number, p: ScanProgress, batch = 40): Promise<ScanProgress> {
+export async function runScanBatch(api: any, helperChatId: number, p: ScanProgress, batch = 8): Promise<ScanProgress> {
   const s = await getSettings();
   const storage = Number(s.storage_channel_id);
-  const deadline = Date.now() + 45_000;
+  // Telegram webhooks time out ~15-20s; stay well under it.
+  const deadline = Date.now() + 10_000;
   let n = 0;
   while (p.next <= p.to && n < batch && Date.now() < deadline) {
     const mid = p.next;
-    p.next++;
-    n++;
     let fwd: any = null;
     try {
       fwd = await api.forwardMessage(helperChatId, storage, mid, { disable_notification: true });
     } catch (e) {
       const d = String((e as any)?.description || (e as Error).message);
-      if (/retry after (\d+)/i.test(d)) {
-        const secs = Number(d.match(/retry after (\d+)/i)![1]);
-        p.next--; n--;
-        if (Date.now() + secs * 1000 > deadline) break;
-        await new Promise((r) => setTimeout(r, secs * 1000));
-        continue;
-      }
+      const m = d.match(/retry after (\d+)/i);
+      if (m) break; // flood wait: stop this batch, resume next click
       p.empty++;
+      p.next++; n++;
+      await saveScanProgress(p);
       continue;
     }
+    p.next++; n++;
     try { await api.deleteMessage(helperChatId, fwd.message_id); } catch { /* ignore */ }
-    if (!fwd?.video && !fwd?.document) { p.empty++; continue; }
-    try {
-      const msg = { ...fwd, chat: { id: storage }, message_id: mid };
-      const r = await indexChannelPost(msg, false, true);
-      if (r.status === "inserted") p.inserted++;
-      else if (r.status === "updated") p.updated++;
-      else if (r.status === "error") p.errors++;
-      else p.skipped++;
-    } catch {
-      p.errors++;
+    if (!fwd?.video && !fwd?.document) {
+      p.empty++;
+    } else {
+      try {
+        const msg = { ...fwd, chat: { id: storage }, message_id: mid };
+        const r = await Promise.race([
+          indexChannelPost(msg, false, true),
+          new Promise<any>((res) => setTimeout(() => res({ status: "error" }), 6000)),
+        ]);
+        if (r.status === "inserted") p.inserted++;
+        else if (r.status === "updated") p.updated++;
+        else if (r.status === "error") p.errors++;
+        else p.skipped++;
+      } catch {
+        p.errors++;
+      }
     }
+    await saveScanProgress(p);
+    await new Promise((r) => setTimeout(r, 400));
   }
   if (p.next > p.to) p.running = false;
   await saveScanProgress(p);

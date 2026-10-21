@@ -167,6 +167,7 @@ async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise
         const dmKb = new InlineKeyboard()
           .url("⚡ 3x Fast Download — Website Visit Karein", WEBSITE_URL).row()
           .url("📷 Instagram (Optional)", INSTAGRAM_URL);
+        const kbFinal = await withBackupKb(dmKb, movie.id);
         await keepMsg(req.user_id, () => sendMovieFile(api, req.user_id, movie, {
           caption:
             `🎉 *Aapki Requested Movie Ready Hai!*\n\n` +
@@ -175,7 +176,7 @@ async function autoDeliverPending(api: Context["api"], movie: MovieRow): Promise
             (sizeLabel ? ` | 💾 ${sizeLabel}` : "") + `\n\n` +
             `📩 Aapne request kiya tha: _${escapeMarkdown(req.title)}_`,
           parse_mode: "Markdown",
-          reply_markup: await withBackupKb(dmKb, movie.id),
+          reply_markup: kbFinal,
         }));
         await fulfillRequest(req.id);
         delivered++;
@@ -1741,8 +1742,9 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
         for (const adminId of ADMIN_IDS()) {
           const akb = new InlineKeyboard().text("💬 Custom Reply", `req_reply_${uid}`).row()
             .text(`✅ Fulfill #${reqId}`, `rdi_${reqId}`);
+          const nm = await userDisplayName(uid);
           await keepMsg(adminId, () => ctx.api.sendMessage(adminId,
-            `📝 Request Note #${reqId}\n\n🎬 ${req?.title ?? "?"}\n👤 ${await userDisplayName(uid)} (${uid})\n\n💬 ${note}`,
+            `📝 Request Note #${reqId}\n\n🎬 ${req?.title ?? "?"}\n👤 ${nm} (${uid})\n\n💬 ${note}`,
             { reply_markup: akb })).catch(() => {});
         }
         await ctx.reply("✅ Aapka message request ke saath admin ko bhej diya gaya!").catch(() => {});

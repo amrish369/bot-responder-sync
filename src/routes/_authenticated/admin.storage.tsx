@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { ChannelSyncCard } from "@/components/ChannelSyncCard";
 import { CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/admin/storage")({ component: StoragePage });
@@ -50,6 +51,8 @@ function StoragePage() {
           <div className="text-lg">{d?.delete_queue_size}</div>
         </Card>
       </div>
+
+      <ChannelSyncCard />
 
       <Card className="p-5">
         <div className="flex items-start justify-between gap-4">

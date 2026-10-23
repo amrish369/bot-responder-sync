@@ -694,3 +694,32 @@ export const drainDeleteQueue = createServerFn({ method: "POST" })
     });
     return await res.json();
   });
+// ─── Channel Auto-Sync (old files scanner) ───────────────────
+export const getChannelScan = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { getScanProgress } = await import("@/lib/telegram/scanner.server");
+    return (await getScanProgress()) as any;
+  });
+
+export const runChannelScanBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { from?: number; to?: number; reset?: boolean }) => d)
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.claims);
+    const sc = await import("@/lib/telegram/scanner.server");
+    const { Api } = await import("grammy");
+    const { BOT_TOKEN, PRIMARY_ADMIN } = await import("@/lib/telegram/config.server");
+    let p = await sc.getScanProgress();
+    if (data.reset || !p || (data.from && data.to && (p.from !== data.from || p.to !== data.to) && !p.running)) {
+      const from = Math.max(1, Number(data.from) || 1);
+      const to = Math.max(from, Number(data.to) || from);
+      p = sc.newScan(from, to);
+    }
+    if (p.next > p.to) { p.running = false; return p as any; }
+    p.running = true;
+    const api = new Api(BOT_TOKEN());
+    p = await sc.runScanBatch(api, PRIMARY_ADMIN(), p, 15);
+    return p as any;
+  });

@@ -784,10 +784,8 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
       return;
     }
     if (isAdmin(uid)) return next();
-    if (ctx.chat?.type === "private") {
-      maybeSendDailyDigest(bot, uid).catch((e) =>
-        console.error("[daily digest hook]", (e as Error).message));
-    }
+    // Daily digest is now sent only by the morning cron (digest.server.ts), never on user messages.
+    void maybeSendDailyDigest;
 
     if (ctx.callbackQuery?.data === "verify_join") {
       const inPrivate =

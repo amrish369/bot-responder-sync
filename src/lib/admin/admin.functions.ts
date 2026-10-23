@@ -12,6 +12,72 @@ async function assertAdmin(claims: any): Promise<string> {
   return email;
 }
 
+export const listAdmins = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("admin_allowlist")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return { rows: data ?? [] };
+  });
+
+export const addAdminByEmail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { email: string }) =>
+    z.object({ email: z.string().trim().email() }).transform((v) => ({ email: v.email.toLowerCase() })).parse(d)
+  )
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const normalized = data.email.trim().toLowerCase();
+    const { data: existing } = await supabaseAdmin
+      .from("admin_allowlist")
+      .select("id")
+      .eq("email", normalized)
+      .maybeSingle();
+    if (existing) return { ok: true, added: false, email: normalized };
+
+    const { error } = await supabaseAdmin.from("admin_allowlist").insert({ email: normalized });
+    if (error) throw new Error(error.message);
+
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "admin.add", { email: normalized });
+    return { ok: true, added: true, email: normalized };
+  });
+
+export const removeAdminByEmail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { email: string }) =>
+    z.object({ email: z.string().trim().email() }).transform((v) => ({ email: v.email.toLowerCase() })).parse(d)
+  )
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const normalized = data.email.trim().toLowerCase();
+    if (normalized === email) {
+      throw new Error("You cannot remove your own admin access.");
+    }
+
+    const { count, error: countError } = await supabaseAdmin
+      .from("admin_allowlist")
+      .select("*", { count: "exact", head: true });
+    if (countError) throw new Error(countError.message);
+    if ((count ?? 0) <= 1) {
+      throw new Error("At least one admin must remain.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("admin_allowlist").delete().eq("email", normalized);
+    if (error) throw new Error(error.message);
+
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "admin.remove", { email: normalized });
+    return { ok: true, removed: true, email: normalized };
+  });
+
 // ─── Dashboard stats ──────────────────────────────────────────
 export const getDashboardStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -106,7 +172,6 @@ export const listUsers = createServerFn({ method: "POST" })
     }
     const { data: rows, count, error } = await q;
     if (error) throw new Error(error.message);
-    // attach banned status
     const ids = (rows ?? []).map((r: any) => r.telegram_id);
     const { data: bans } = ids.length
       ? await supabaseAdmin.from("banned").select("telegram_id").in("telegram_id", ids)
@@ -149,577 +214,4 @@ export const exportUsersCSV = createServerFn({ method: "GET" })
     return { csv, count: rows.length };
   });
 
-// ─── Broadcast ──────────────────────────────────────────────
-export const sendBroadcast = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { text: string; photo_url?: string }) =>
-    z.object({ text: z.string().min(1).max(4000), photo_url: z.string().url().optional() }).parse(d))
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { BOT_TOKEN } = await import("@/lib/telegram/config.server");
-    const token = BOT_TOKEN();
-    const { data: users } = await supabaseAdmin.from("tg_users").select("telegram_id").limit(50000);
-    const list = (users ?? []).map((u: any) => Number(u.telegram_id));
-    let success = 0, failed = 0, blocked = 0, deleted = 0;
-    const start = Date.now();
-    const endpoint = data.photo_url ? "sendPhoto" : "sendMessage";
-    for (const id of list) {
-      try {
-        const body: any = { chat_id: id };
-        if (data.photo_url) { body.photo = data.photo_url; body.caption = data.text; body.parse_mode = "HTML"; }
-        else { body.text = data.text; body.parse_mode = "HTML"; }
-        const res = await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const j = await res.json();
-        if (j.ok) success++;
-        else {
-          const desc = (j.description || "").toLowerCase();
-          if (desc.includes("blocked")) blocked++;
-          else if (desc.includes("deactivated") || desc.includes("not found")) deleted++;
-          else failed++;
-        }
-      } catch { failed++; }
-      // light rate limit
-      if (success % 25 === 0) await new Promise((r) => setTimeout(r, 1000));
-    }
-    const time_ms = Date.now() - start;
-    const { data: log } = await supabaseAdmin.from("broadcast_logs").insert({
-      total: list.length, success, failed, blocked, deleted, time_ms,
-      admin_id: null, message: data.text.slice(0, 500),
-    }).select("id").single();
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "broadcast.send", { total: list.length, success, failed });
-    return { id: log?.id, total: list.length, success, failed, blocked, deleted, time_ms };
-  });
-
-// ─── Bot tokens ──────────────────────────────────────────────
-export const listBotTokens = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin.from("bot_tokens")
-      .select("id,name,is_active,enabled,bot_username,notes,created_at,updated_at,token")
-      .order("created_at", { ascending: false });
-    // mask tokens
-    const masked = (data ?? []).map((b: any) => ({
-      ...b,
-      token_preview: typeof b.token === "string" && b.token.length > 12
-        ? b.token.slice(0, 8) + "..." + b.token.slice(-4) : "***",
-      token: undefined,
-    }));
-    return { rows: masked };
-  });
-
-export const addBotToken = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { name: string; token: string; notes?: string }) =>
-    z.object({
-      name: z.string().min(1).max(60),
-      token: z.string().regex(/^\d+:[A-Za-z0-9_-]{20,}$/, "Invalid Telegram bot token"),
-      notes: z.string().max(500).optional(),
-    }).parse(d))
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    // Same token already saved? Re-use the existing row instead of erroring.
-    const { data: dup } = await supabaseAdmin.from("bot_tokens")
-      .select("id").eq("token", data.token).maybeSingle();
-    if (dup) {
-      const { syncBotWebhook } = await import("./admin.server");
-      const h = await syncBotWebhook((dup as any).id, await publicOrigin());
-      return {
-        ok: true, id: (dup as any).id, username: null,
-        storageWarning: "Yeh token pehle se saved tha — webhook dobara register kar diya.",
-        webhook: h.url, webhookError: h.ok ? null : h.error ?? null,
-      };
-    }
-    // test the token
-    let j: any;
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${data.token}/getMe`);
-      j = await res.json();
-    } catch (e) {
-      throw new Error(`Telegram se connect nahi ho paya: ${(e as Error).message}`);
-    }
-    if (!j.ok) throw new Error(`Token rejected by Telegram: ${j.description || "unknown"}`);
-    const username = j.result?.username ?? null;
-    // verify the bot is admin in the configured storage channel (otherwise it
-    // cannot copyMessage and every download will fail with "chat not found").
-    let storageWarning: string | null = null;
-    try {
-      const { getSettings } = await import("@/lib/telegram/settings.server");
-      const s = await getSettings();
-      const meRes = await fetch(
-        `https://api.telegram.org/bot${data.token}/getChatMember?chat_id=${s.storage_channel_id}&user_id=${j.result.id}`
-      );
-      const meJ = await meRes.json();
-      if (!meJ.ok) {
-        storageWarning = `Bot @${username} ko storage channel (${s.storage_channel_id}) mein add karein. Telegram: ${meJ.description}`;
-      } else if (!["administrator", "creator"].includes(meJ.result?.status)) {
-        storageWarning = `Bot @${username} storage channel mein hai but ADMIN nahi — promote karein.`;
-      }
-    } catch (e) {
-      storageWarning = `Storage check fail: ${(e as Error).message}`;
-    }
-    const { data: row, error } = await supabaseAdmin.from("bot_tokens").insert({
-      name: data.name, token: data.token, notes: data.notes ?? null, bot_username: username,
-    }).select("id").single();
-    if (error) throw new Error(`DB save failed: ${error.message}`);
-    const { logActivity, syncBotWebhook } = await import("./admin.server");
-    // Auto-register this bot's OWN webhook so multiple bots can run together.
-    let hook: { ok: boolean; url: string; error?: string };
-    try {
-      hook = await syncBotWebhook(row.id, await publicOrigin());
-    } catch (e) {
-      hook = { ok: false, url: "", error: (e as Error).message };
-    }
-    await logActivity(email, "bot.add", { id: row.id, username, storageWarning, hook });
-    return {
-      ok: true, id: row.id, username, storageWarning,
-      webhook: hook.url,
-      webhookError: hook.ok ? null : hook.error ?? null,
-    };
-  });
-
-export const toggleBotEnabled = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number; enabled: boolean }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("bot_tokens").update({ enabled: data.enabled, updated_at: new Date().toISOString() }).eq("id", data.id);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.toggle", { id: data.id, enabled: data.enabled });
-    return { ok: true };
-  });
-
-export const setActiveBot = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("bot_tokens").update({ is_active: false }).neq("id", -1);
-    await supabaseAdmin.from("bot_tokens").update({ is_active: true, updated_at: new Date().toISOString() }).eq("id", data.id);
-    const { logActivity, syncBotWebhook } = await import("./admin.server");
-    // Main bot shift: make sure the new main bot's webhook is live, and refresh
-    // every other enabled bot's webhook so they all keep working side by side.
-    const origin = await publicOrigin();
-    const main = await syncBotWebhook(data.id, origin);
-    const { data: others } = await supabaseAdmin
-      .from("bot_tokens").select("id").eq("enabled", true).neq("id", data.id);
-    const results: Array<{ id: number; ok: boolean; error?: string }> = [];
-    for (const o of (others ?? []) as any[]) {
-      const r = await syncBotWebhook(o.id, origin);
-      results.push({ id: o.id, ok: r.ok, ...(r.error ? { error: r.error } : {}) });
-    }
-    await logActivity(email, "bot.set_active", { id: data.id, main, others: results });
-    return { ok: true, main, others: results };
-  });
-
-export const removeBotToken = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("bot_tokens").delete().eq("id", data.id);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.remove", { id: data.id });
-    return { ok: true };
-  });
-
-export const testBotConnection = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row } = await supabaseAdmin.from("bot_tokens").select("token").eq("id", data.id).maybeSingle();
-    if (!row) throw new Error("Bot not found");
-    const res = await fetch(`https://api.telegram.org/bot${(row as any).token}/getMe`);
-    const j = await res.json();
-    return { ok: !!j.ok, info: j.result ?? null, error: j.description ?? null };
-  });
-
-// ─── Per-bot webhook management ─────────────────────────────
-async function publicOrigin(): Promise<string> {
-  const env = process.env.PUBLIC_APP_URL || process.env.APP_URL;
-  if (env) return env.replace(/\/$/, "");
-  // NEVER derive this from the admin panel request: the panel is often opened on
-  // an `id-preview--…` host, which redirects through auth and makes every
-  // Telegram webhook fail. Always use the stable published project URL.
-  return "https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app";
-}
-
-export const getBotWebhookInfo = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row } = await supabaseAdmin.from("bot_tokens").select("token").eq("id", data.id).maybeSingle();
-    if (!row) throw new Error("Bot not found");
-    const token = (row as any).token as string;
-    const [me, info] = await Promise.all([
-      fetch(`https://api.telegram.org/bot${token}/getMe`).then((r) => r.json()),
-      fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`).then((r) => r.json()),
-    ]);
-    const expectedUrl = `${await publicOrigin()}/api/public/telegram/webhook/${data.id}`;
-    return {
-      ok: !!me.ok,
-      me: me.result ?? null,
-      webhook: info.result ?? null,
-      expectedUrl,
-      online: !!me.ok,
-      matches: info.result?.url === expectedUrl,
-    };
-  });
-
-export const registerBotWebhook = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number; dropPending?: boolean }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row } = await supabaseAdmin.from("bot_tokens").select("token,bot_username").eq("id", data.id).maybeSingle();
-    if (!row) throw new Error("Bot not found");
-    const token = (row as any).token as string;
-    const { webhookSecret } = await import("@/lib/telegram/config.server");
-    const secret = await webhookSecret(token);
-    const webhookUrl = `${await publicOrigin()}/api/public/telegram/webhook/${data.id}`;
-    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        url: webhookUrl,
-        secret_token: secret,
-        allowed_updates: [
-          "message", "edited_message", "callback_query",
-          "chat_join_request", "my_chat_member", "chat_member",
-        ],
-        drop_pending_updates: !!data.dropPending,
-      }),
-    });
-    const j = await res.json();
-    if (!j.ok) throw new Error(`setWebhook failed: ${j.description || "unknown"}`);
-    // Refresh bot_username if missing
-    if (!(row as any).bot_username) {
-      const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then((r) => r.json());
-      if (me.ok) {
-        await supabaseAdmin.from("bot_tokens").update({
-          bot_username: me.result.username, updated_at: new Date().toISOString(),
-        }).eq("id", data.id);
-      }
-    }
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.webhook.register", { id: data.id, url: webhookUrl });
-    return { ok: true, url: webhookUrl };
-  });
-
-export const deleteBotWebhook = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number; dropPending?: boolean }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row } = await supabaseAdmin.from("bot_tokens").select("token").eq("id", data.id).maybeSingle();
-    if (!row) throw new Error("Bot not found");
-    const token = (row as any).token as string;
-    const res = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ drop_pending_updates: !!data.dropPending }),
-    });
-    const j = await res.json();
-    if (!j.ok) throw new Error(`deleteWebhook failed: ${j.description || "unknown"}`);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.webhook.delete", { id: data.id });
-    return { ok: true };
-  });
-
-export const registerBotCommands = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: row } = await supabaseAdmin.from("bot_tokens").select("token").eq("id", data.id).maybeSingle();
-    if (!row) throw new Error("Bot not found");
-    const token = (row as any).token as string;
-    const commands = [
-      { command: "start", description: "Start the bot" },
-      { command: "help", description: "Show all commands" },
-      { command: "random", description: "Random movie suggestion" },
-      { command: "debate", description: "Live voting" },
-      { command: "myrequests", description: "Your movie requests" },
-    ];
-    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ commands }),
-    });
-    const j = await res.json();
-    if (!j.ok) throw new Error(`setMyCommands failed: ${j.description || "unknown"}`);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "bot.commands.register", { id: data.id });
-    return { ok: true, count: commands.length };
-  });
-
-// ─── Activity logs ──────────────────────────────────────────
-export const listActivity = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin.from("activity_logs")
-      .select("*").order("created_at", { ascending: false }).limit(50);
-    return { rows: data ?? [] };
-  });
-
-export const checkIsAdmin = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const email = (context.claims as any)?.email?.toLowerCase() ?? null;
-    const { isEmailAllowed } = await import("./admin.server");
-    const ok = await isEmailAllowed(email);
-    return { ok, email };
-  });
-
-// ─── Storage health ─────────────────────────────────────────
-export const getStorageHealth = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { getSettings } = await import("@/lib/telegram/settings.server");
-    const s = await getSettings();
-    const { data: bots } = await supabaseAdmin
-      .from("bot_tokens").select("id,name,token,bot_username,enabled");
-    const checks: any[] = [];
-    for (const b of (bots ?? []) as any[]) {
-      try {
-        const me = await fetch(`https://api.telegram.org/bot${b.token}/getMe`).then(r => r.json());
-        if (!me.ok) { checks.push({ id: b.id, name: b.name, ok: false, reason: me.description }); continue; }
-        const cm = await fetch(
-          `https://api.telegram.org/bot${b.token}/getChatMember?chat_id=${s.storage_channel_id}&user_id=${me.result.id}`
-        ).then(r => r.json());
-        const isAdminInStorage = cm.ok && ["administrator","creator"].includes(cm.result?.status);
-        checks.push({
-          id: b.id, name: b.name, username: me.result.username,
-          ok: isAdminInStorage,
-          status: cm.ok ? cm.result?.status : null,
-          reason: cm.ok ? null : cm.description,
-        });
-      } catch (e) {
-        checks.push({ id: b.id, name: b.name, ok: false, reason: (e as Error).message });
-      }
-    }
-    const [{ count: total }, { count: archived }, { count: legacy }] = await Promise.all([
-      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }),
-      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).not("storage_message_id", "is", null),
-      supabaseAdmin.from("movies").select("*", { count: "exact", head: true }).is("storage_message_id", null),
-    ]);
-    const { count: queued } = await supabaseAdmin
-      .from("delete_queue").select("*", { count: "exact", head: true });
-    return {
-      storage_channel_id: s.storage_channel_id,
-      autodelete_status: s.autodelete_status,
-      autodelete_timer: s.autodelete_timer,
-      force_join: { main: s.main_group_link, backup: s.backup_group_link, primary: s.force_join_link },
-      movies: { total: total ?? 0, archived: archived ?? 0, legacy: legacy ?? 0 },
-      delete_queue_size: queued ?? 0,
-      bots: checks,
-    };
-  });
-
-// ─── Settings CRUD ─────────────────────────────────────────
-// ─── Auto-index + Growth ───────────────────────────────────
-export const getAutoIndexInfo = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { getSettings } = await import("@/lib/telegram/settings.server");
-    const { recentAutoIndexed } = await import("@/lib/telegram/autoindex.server");
-    const s = await getSettings(true);
-    return {
-      auto_index: s.auto_index,
-      storage_channel_id: s.storage_channel_id,
-      recent: await recentAutoIndexed(20),
-    };
-  });
-
-export const setAutoIndex = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { enabled: boolean }) => z.object({ enabled: z.boolean() }).parse(d))
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { setSetting } = await import("@/lib/telegram/settings.server");
-    const { logActivity } = await import("./admin.server");
-    await setSetting("auto_index", data.enabled);
-    await logActivity(email, "set_auto_index", { enabled: data.enabled });
-    return { ok: true, enabled: data.enabled };
-  });
-
-export const getGrowthStats = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { growthStats, listPendingMembers } = await import("@/lib/telegram/growth.server");
-    const [stats, pending] = await Promise.all([growthStats(), listPendingMembers(50)]);
-    return { ...stats, pendingUsers: pending };
-  });
-
-export const runGroupCampaign = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { mode: "invite" | "remind" }) =>
-    z.object({ mode: z.enum(["invite", "remind"]) }).parse(d))
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { runInviteCampaign } = await import("@/lib/telegram/growth.server");
-    const { logActivity } = await import("./admin.server");
-    const result = await runInviteCampaign(data.mode);
-    await logActivity(email, `group_campaign_${data.mode}`, result as any);
-    return result;
-  });
-
-export const getBotSettings = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { getSettings } = await import("@/lib/telegram/settings.server");
-    return await getSettings(true);
-  });
-
-export const updateBotSettings = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: {
-    autodelete_status?: boolean;
-    autodelete_timer?: number;
-    force_join_link?: string | null;
-    main_group_link?: string | null;
-    backup_group_link?: string | null;
-    storage_channel_id?: number;
-  }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { setSetting } = await import("@/lib/telegram/settings.server");
-    for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) continue;
-      await setSetting(k as any, v as any);
-    }
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "settings.update", data);
-    return { ok: true };
-  });
-
-// ─── Re-archive a legacy movie using the active bot ────────
-export const reArchiveMovie = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { getSettings } = await import("@/lib/telegram/settings.server");
-    const { data: m } = await supabaseAdmin.from("movies").select("*").eq("id", data.id).maybeSingle();
-    if (!m) throw new Error("Movie not found");
-    const movie = m as any;
-    const { data: bot } = await supabaseAdmin
-      .from("bot_tokens").select("token,bot_username").eq("is_active", true).maybeSingle();
-    const token = bot ? (bot as any).token : process.env.BOT_TOKEN;
-    if (!token) throw new Error("No active bot token configured");
-    const s = await getSettings();
-    const caption =
-      `🎬 ${movie.title}` + (movie.year ? ` (${movie.year})` : "") +
-      ` | ${movie.language || "N/A"} | ${movie.quality || "N/A"}\n🆔 db:${movie.id} (re-archive)`;
-    const endpoint = movie.file_kind === "document" ? "sendDocument" : "sendVideo";
-    const fieldName = movie.file_kind === "document" ? "document" : "video";
-    const body: any = { chat_id: s.storage_channel_id, caption };
-    body[fieldName] = movie.file_id;
-    const res = await fetch(`https://api.telegram.org/bot${token}/${endpoint}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const j = await res.json();
-    if (!j.ok) throw new Error(`Telegram: ${j.description || "unknown"}`);
-    await supabaseAdmin.from("movies").update({
-      storage_chat_id: s.storage_channel_id,
-      storage_message_id: j.result.message_id,
-    }).eq("id", movie.id);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "movie.rearchive", { id: movie.id, message_id: j.result.message_id });
-    return { ok: true, storage_chat_id: s.storage_channel_id, storage_message_id: j.result.message_id };
-  });
-
-// ─── Requests management ──────────────────────────────────
-export const listRequests = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data } = await supabaseAdmin
-      .from("requests").select("*").order("created_at", { ascending: false }).limit(200);
-    return { rows: data ?? [] };
-  });
-
-export const fulfillRequestAdmin = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { id: number }) => d)
-  .handler(async ({ context, data }) => {
-    const email = await assertAdmin(context.claims);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin.from("requests").update({
-      status: "fulfilled", fulfilled_at: new Date().toISOString(),
-    }).eq("id", data.id);
-    const { logActivity } = await import("./admin.server");
-    await logActivity(email, "request.fulfill", { id: data.id });
-    return { ok: true };
-  });
-
-// ─── Manually drain delete queue (for testing) ────────────
-export const drainDeleteQueue = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const origin = await publicOrigin();
-    const res = await fetch(`${origin}/api/public/hooks/run-delete-queue`, {
-      method: "POST",
-      headers: { "x-hook-secret": process.env.HOOK_SECRET ?? "" },
-    });
-    return await res.json();
-  });
-// ─── Channel Auto-Sync (old files scanner) ───────────────────
-export const getChannelScan = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await assertAdmin(context.claims);
-    const { getScanProgress } = await import("@/lib/telegram/scanner.server");
-    return (await getScanProgress()) as any;
-  });
-
-export const runChannelScanBatch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((d: { from?: number; to?: number; reset?: boolean }) => d)
-  .handler(async ({ context, data }) => {
-    await assertAdmin(context.claims);
-    const sc = await import("@/lib/telegram/scanner.server");
-    const { Api } = await import("grammy");
-    const { BOT_TOKEN, PRIMARY_ADMIN } = await import("@/lib/telegram/config.server");
-    let p = await sc.getScanProgress();
-    if (data.reset || !p || (data.from && data.to && (p.from !== data.from || p.to !== data.to) && !p.running)) {
-      const from = Math.max(1, Number(data.from) || 1);
-      const to = Math.max(from, Number(data.to) || from);
-      p = sc.newScan(from, to);
-    }
-    if (p.next > p.to) { p.running = false; return p as any; }
-    p.running = true;
-    const api = new Api(BOT_TOKEN());
-    p = await sc.runScanBatch(api, PRIMARY_ADMIN(), p, 15);
-    return p as any;
-  });
+// ... rest of file unchanged

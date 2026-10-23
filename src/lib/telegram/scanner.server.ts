@@ -9,6 +9,7 @@ export interface ScanProgress {
   inserted: number;
   updated: number;
   skipped: number;
+  already_indexed: number;
   empty: number;
   errors: number;
   running: boolean;
@@ -30,7 +31,19 @@ export async function saveScanProgress(p: ScanProgress) {
 }
 
 export function newScan(from: number, to: number): ScanProgress {
-  return { from, to, next: from, inserted: 0, updated: 0, skipped: 0, empty: 0, errors: 0, running: true, started_at: new Date().toISOString() };
+  return {
+    from,
+    to,
+    next: from,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    already_indexed: 0,
+    empty: 0,
+    errors: 0,
+    running: true,
+    started_at: new Date().toISOString(),
+  };
 }
 
 /**
@@ -46,6 +59,25 @@ export async function runScanBatch(api: any, helperChatId: number, p: ScanProgre
   let n = 0;
   while (p.next <= p.to && n < batch && Date.now() < deadline) {
     const mid = p.next;
+
+    // Skip anything that is already present in DB for this storage message.
+    // This avoids re-forwarding and re-indexing messages that were already fetched before.
+    const { data: existingByMessage } = await supabaseAdmin
+      .from("movies")
+      .select("id")
+      .eq("storage_chat_id", storage)
+      .eq("storage_message_id", mid)
+      .maybeSingle();
+
+    if (existingByMessage) {
+      p.next += 1;
+      n += 1;
+      p.skipped += 1;
+      p.already_indexed = (p.already_indexed ?? 0) + 1;
+      await saveScanProgress(p);
+      continue;
+    }
+
     let fwd: any = null;
     try {
       fwd = await api.forwardMessage(helperChatId, storage, mid, { disable_notification: true });

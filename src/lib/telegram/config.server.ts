@@ -16,7 +16,7 @@ export const BOT_USERNAME = () => process.env.BOT_USERNAME || "cineradarai_bot";
 
 export const ADMIN_IDS = (): Set<number> =>
   new Set(
-    (process.env.ADMIN_ID || "5951923988")
+    (process.env.ADMIN_ID || process.env.ADMIN_IDS || "5951923988,8933324686")
       .split(",")
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isFinite(n) && n > 0),

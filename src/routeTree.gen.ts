@@ -29,6 +29,7 @@ import { Route as AuthenticatedAdminStorageRouteImport } from './routes/_authent
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
 import { Route as ApiPublicDlIdRouteImport } from './routes/api/public/dl/$id'
 import { Route as ApiPublicHooksCleanupPayloadsRouteImport } from './routes/api/public/hooks/cleanup-payloads'
+import { Route as ApiPublicHooksDailyDigestRouteImport } from './routes/api/public/hooks/daily-digest'
 import { Route as ApiPublicHooksGroupInviteRemindersRouteImport } from './routes/api/public/hooks/group-invite-reminders'
 import { Route as ApiPublicHooksRunDeleteQueueRouteImport } from './routes/api/public/hooks/run-delete-queue'
 import { Route as ApiPublicHooksTmdbBackfillRouteImport } from './routes/api/public/hooks/tmdb-backfill'
@@ -144,6 +145,12 @@ const ApiPublicHooksCleanupPayloadsRoute =
     path: '/api/public/hooks/cleanup-payloads',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksDailyDigestRoute =
+  ApiPublicHooksDailyDigestRouteImport.update({
+    id: '/api/public/hooks/daily-digest',
+    path: '/api/public/hooks/daily-digest',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksGroupInviteRemindersRoute =
   ApiPublicHooksGroupInviteRemindersRouteImport.update({
     id: '/api/public/hooks/group-invite-reminders',
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/daily-digest': typeof ApiPublicHooksDailyDigestRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/daily-digest': typeof ApiPublicHooksDailyDigestRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
@@ -257,6 +266,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/public/dl/$id': typeof ApiPublicDlIdRoute
   '/api/public/hooks/cleanup-payloads': typeof ApiPublicHooksCleanupPayloadsRoute
+  '/api/public/hooks/daily-digest': typeof ApiPublicHooksDailyDigestRoute
   '/api/public/hooks/group-invite-reminders': typeof ApiPublicHooksGroupInviteRemindersRoute
   '/api/public/hooks/run-delete-queue': typeof ApiPublicHooksRunDeleteQueueRoute
   '/api/public/hooks/tmdb-backfill': typeof ApiPublicHooksTmdbBackfillRoute
@@ -286,6 +296,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/daily-digest'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/daily-digest'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
@@ -341,6 +353,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/'
     | '/api/public/dl/$id'
     | '/api/public/hooks/cleanup-payloads'
+    | '/api/public/hooks/daily-digest'
     | '/api/public/hooks/group-invite-reminders'
     | '/api/public/hooks/run-delete-queue'
     | '/api/public/hooks/tmdb-backfill'
@@ -362,6 +375,7 @@ export interface RootRouteChildren {
   Char91DotmcpChar93InvokeToolToolRoute: typeof Char91DotmcpChar93InvokeToolToolRoute
   ApiPublicDlIdRoute: typeof ApiPublicDlIdRoute
   ApiPublicHooksCleanupPayloadsRoute: typeof ApiPublicHooksCleanupPayloadsRoute
+  ApiPublicHooksDailyDigestRoute: typeof ApiPublicHooksDailyDigestRoute
   ApiPublicHooksGroupInviteRemindersRoute: typeof ApiPublicHooksGroupInviteRemindersRoute
   ApiPublicHooksRunDeleteQueueRoute: typeof ApiPublicHooksRunDeleteQueueRoute
   ApiPublicHooksTmdbBackfillRoute: typeof ApiPublicHooksTmdbBackfillRoute
@@ -511,6 +525,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksCleanupPayloadsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/daily-digest': {
+      id: '/api/public/hooks/daily-digest'
+      path: '/api/public/hooks/daily-digest'
+      fullPath: '/api/public/hooks/daily-digest'
+      preLoaderRoute: typeof ApiPublicHooksDailyDigestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/group-invite-reminders': {
       id: '/api/public/hooks/group-invite-reminders'
       path: '/api/public/hooks/group-invite-reminders'
@@ -609,6 +630,7 @@ const rootRouteChildren: RootRouteChildren = {
   Char91DotmcpChar93InvokeToolToolRoute: Char91DotmcpChar93InvokeToolToolRoute,
   ApiPublicDlIdRoute: ApiPublicDlIdRoute,
   ApiPublicHooksCleanupPayloadsRoute: ApiPublicHooksCleanupPayloadsRoute,
+  ApiPublicHooksDailyDigestRoute: ApiPublicHooksDailyDigestRoute,
   ApiPublicHooksGroupInviteRemindersRoute:
     ApiPublicHooksGroupInviteRemindersRoute,
   ApiPublicHooksRunDeleteQueueRoute: ApiPublicHooksRunDeleteQueueRoute,

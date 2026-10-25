@@ -20,6 +20,7 @@ import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } fr
 import { Route as MIdRouteImport } from './routes/m.$id'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
+import { Route as AuthenticatedAdminAdminsRouteImport } from './routes/_authenticated/admin.admins'
 import { Route as AuthenticatedAdminBotsRouteImport } from './routes/_authenticated/admin.bots'
 import { Route as AuthenticatedAdminBroadcastRouteImport } from './routes/_authenticated/admin.broadcast'
 import { Route as AuthenticatedAdminMoviesRouteImport } from './routes/_authenticated/admin.movies'
@@ -94,6 +95,12 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/admin/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminAdminsRoute =
+  AuthenticatedAdminAdminsRouteImport.update({
+    id: '/admin/admins',
+    path: '/admin/admins',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedAdminBotsRoute = AuthenticatedAdminBotsRouteImport.update({
   id: '/admin/bots',
   path: '/admin/bots',
@@ -198,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/admin/admins': typeof AuthenticatedAdminAdminsRoute
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
@@ -226,6 +234,7 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/admin/admins': typeof AuthenticatedAdminAdminsRoute
   '/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/admin/movies': typeof AuthenticatedAdminMoviesRoute
@@ -256,6 +265,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/m/$id': typeof MIdRoute
   '/.mcp/invoke-tool/$tool': typeof Char91DotmcpChar93InvokeToolToolRoute
+  '/_authenticated/admin/admins': typeof AuthenticatedAdminAdminsRoute
   '/_authenticated/admin/bots': typeof AuthenticatedAdminBotsRoute
   '/_authenticated/admin/broadcast': typeof AuthenticatedAdminBroadcastRoute
   '/_authenticated/admin/movies': typeof AuthenticatedAdminMoviesRoute
@@ -286,6 +296,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
+    | '/admin/admins'
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
@@ -314,6 +325,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
+    | '/admin/admins'
     | '/admin/bots'
     | '/admin/broadcast'
     | '/admin/movies'
@@ -343,6 +355,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource'
     | '/m/$id'
     | '/.mcp/invoke-tool/$tool'
+    | '/_authenticated/admin/admins'
     | '/_authenticated/admin/bots'
     | '/_authenticated/admin/broadcast'
     | '/_authenticated/admin/movies'
@@ -462,6 +475,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/admins': {
+      id: '/_authenticated/admin/admins'
+      path: '/admin/admins'
+      fullPath: '/admin/admins'
+      preLoaderRoute: typeof AuthenticatedAdminAdminsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/admin/bots': {
       id: '/_authenticated/admin/bots'
       path: '/admin/bots'
@@ -578,6 +598,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminAdminsRoute: typeof AuthenticatedAdminAdminsRoute
   AuthenticatedAdminBotsRoute: typeof AuthenticatedAdminBotsRoute
   AuthenticatedAdminBroadcastRoute: typeof AuthenticatedAdminBroadcastRoute
   AuthenticatedAdminMoviesRoute: typeof AuthenticatedAdminMoviesRoute
@@ -589,6 +610,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminAdminsRoute: AuthenticatedAdminAdminsRoute,
   AuthenticatedAdminBotsRoute: AuthenticatedAdminBotsRoute,
   AuthenticatedAdminBroadcastRoute: AuthenticatedAdminBroadcastRoute,
   AuthenticatedAdminMoviesRoute: AuthenticatedAdminMoviesRoute,

@@ -2092,7 +2092,8 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb, m.id) });
       await logChat(uid, "bot", `[Auto-deliver on request] ${m.title}`);
       if (ctx.chat?.type && ctx.chat.type !== "private") {
-        await tempReply(ctx, `📩 ${m.title} available thi — file aapke DM mein bhej di!`);
+        await tempReply(ctx, `📩 ${m.title} available thi — file privately aapke DM mein bhej di!\n👉 CineRadar bot ko open karke check karein.`,
+          { reply_markup: new InlineKeyboard().url("🤖 CineRadar Bot Kholein", `https://t.me/${meName(ctx)}`) });
       }
     } catch {
       const deepKb = new InlineKeyboard()
@@ -2313,16 +2314,22 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
           try {
             await sendMovieFile(ctx.api, uid, m, { caption, parse_mode: "Markdown", reply_markup: await withBackupKb(kb, m.id) });
             // Outgoing API transformer queues the delivered file.
-            await ctx.answerCallbackQuery({ text: "📩 Check your DM — file bhej di!", show_alert: true });
+            await ctx.answerCallbackQuery({
+              text: "📩 File privately aapke DM mein bhej di gayi hai!\n\n👉 CineRadar bot ko open karke check karein.",
+              show_alert: true,
+            });
+            await tempReply(ctx,
+              `📩 *${escapeMarkdown(m.title)}* — file aapke personal DM mein bhej di gayi hai!\n👉 CineRadar bot ko open karke check karein.`,
+              { parse_mode: "Markdown", reply_markup: new InlineKeyboard().url("🤖 CineRadar Bot Kholein", `https://t.me/${meName(ctx)}`) });
           } catch (dmErr) {
             // User hasn't started the bot → deep-link them
             const deepKb = new InlineKeyboard()
-              .url("▶️ Start Bot to Receive File", `https://t.me/${meName(ctx)}?start=get_${m.id}`);
+              .url("▶️ Open & Start CineRadar Bot", `https://t.me/${meName(ctx)}?start=get_${m.id}`);
             await ctx.api.sendMessage(chatId!,
-              `📩 *${escapeMarkdown(m.title)}* — Personal chat mein bhejni hai.\n` +
-              `Pehle bot ko start karo, phir file automatically aa jayegi.`,
+              `📩 *${escapeMarkdown(m.title)}* — file aapko privately bheji jayegi.\n` +
+              `👉 Pehle CineRadar bot ko open karke *Start* karein, file turant mil jayegi!`,
               { parse_mode: "Markdown", reply_markup: deepKb }).catch(() => {});
-            await ctx.answerCallbackQuery({ text: "▶️ Start the bot in DM first", show_alert: true });
+            await ctx.answerCallbackQuery({ text: "▶️ Pehle CineRadar bot ko open karke Start karein — file turant mil jayegi!", show_alert: true });
           }
           return;
         }

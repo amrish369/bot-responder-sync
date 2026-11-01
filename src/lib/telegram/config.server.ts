@@ -31,7 +31,7 @@ export const TMDB_BASE = "https://api.themoviedb.org/3";
 export const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
 export const WEBSITE_URL = "https://www.compressdocument.in/";
 export const INSTAGRAM_URL =
-  "https://www.instagram.com/_www.compressdocument.in?igsh=MzNtdGVoeHp3YWhq";
+  "https://www.instagram.com/amrish.369?obrf=MzNtdGVoeHp3YWhq";
 
 // Derived webhook secret (stable, matches Telegram setWebhook value)
 export async function webhookSecret(token?: string): Promise<string> {

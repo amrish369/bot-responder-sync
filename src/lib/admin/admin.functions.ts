@@ -61,6 +61,7 @@ export const removeAdminByEmail = createServerFn({ method: "POST" })
       throw new Error("You cannot remove your own admin access.");
     }
 
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { count, error: countError } = await supabaseAdmin
       .from("admin_allowlist")
       .select("*", { count: "exact", head: true });
@@ -69,7 +70,6 @@ export const removeAdminByEmail = createServerFn({ method: "POST" })
       throw new Error("At least one admin must remain.");
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("admin_allowlist").delete().eq("email", normalized);
     if (error) throw new Error(error.message);
 

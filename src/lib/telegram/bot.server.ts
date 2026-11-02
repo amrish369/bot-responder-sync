@@ -8,7 +8,6 @@ import {
   BACKUP_CHANNEL,
   BACKUP_CHANNEL_USERNAME,
   INSTAGRAM_URL,
-  WEBSITE_URL,
   ADMIN_IDS,
   PRIMARY_ADMIN,
   isAdmin,
@@ -412,7 +411,7 @@ async function withBackupKb(
 ): Promise<InlineKeyboard | undefined> {
   const backup = await backupGroupKb();
   let extra: InlineKeyboard | null = backup;
-  if (movieId) {
+  if (movieId && !kb) {
     const web = new InlineKeyboard().url("📷 Instagram", INSTAGRAM_URL);
     extra = extra ? mergeKeyboards(extra, web) : web;
   }
@@ -1754,9 +1753,7 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
         `• /upcoming — Upcoming Indian movies\n` +
         `• /myrequests — Track your requests\n` +
         `• /help — Show this message\n\n` +
-        `📷 *Instagram:* ${INSTAGRAM_URL}
-
-` +
+        `📷 *Instagram:* amrish\\.369\n\n` +
         `📌 *This message is pinned for easy access\\.*\n` +
         `🔞 No 18\\+ content allowed\\.\n` +
         `👑 Admin: @cineradarai\\_admin`;

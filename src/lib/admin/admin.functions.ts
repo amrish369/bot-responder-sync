@@ -163,7 +163,13 @@ export const listUsers = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const limit = Math.min(data.limit ?? 50, 200);
     const offset = data.offset ?? 0;
+    // Sirf wahi users jo group / backup group / bot (started) me kahin bhi jude hain
+    const { data: mem } = await supabaseAdmin.from("group_membership")
+      .select("telegram_id").eq("blocked", false)
+      .or("started.eq.true,main_joined.eq.true,backup_joined.eq.true").limit(50000);
+    const connected = (mem ?? []).map((m: any) => Number(m.telegram_id));
     let q = supabaseAdmin.from("tg_users").select("*", { count: "exact" })
+      .in("telegram_id", connected.length ? connected : [-1])
       .order("last_seen", { ascending: false }).range(offset, offset + limit - 1);
     if (data.search) {
       const s = data.search.trim();
@@ -181,6 +187,25 @@ export const listUsers = createServerFn({ method: "POST" })
       rows: (rows ?? []).map((r: any) => ({ ...r, banned: bset.has(Number(r.telegram_id)) })),
       total: count ?? 0,
     };
+  });
+
+export const removeDisconnectedUsers = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const email = await assertAdmin(context.claims);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: mem } = await supabaseAdmin.from("group_membership")
+      .select("telegram_id").eq("blocked", false)
+      .or("started.eq.true,main_joined.eq.true,backup_joined.eq.true").limit(50000);
+    const keep = new Set((mem ?? []).map((m: any) => Number(m.telegram_id)));
+    const { data: users } = await supabaseAdmin.from("tg_users").select("telegram_id").limit(50000);
+    const drop = (users ?? []).map((u: any) => Number(u.telegram_id)).filter((id) => !keep.has(id));
+    for (let i = 0; i < drop.length; i += 200) {
+      await supabaseAdmin.from("tg_users").delete().in("telegram_id", drop.slice(i, i + 200));
+    }
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, "users.cleanup", { removed: drop.length });
+    return { removed: drop.length };
   });
 
 export const setUserBan = createServerFn({ method: "POST" })

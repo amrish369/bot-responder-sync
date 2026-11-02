@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listUsers, setUserBan, exportUsersCSV, getGrowthStats, runGroupCampaign } from "@/lib/admin/admin.functions";
+import { listUsers, setUserBan, exportUsersCSV, getGrowthStats, runGroupCampaign, removeDisconnectedUsers } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,15 @@ function UsersPage() {
   const exp = useServerFn(exportUsersCSV);
   const growth = useServerFn(getGrowthStats);
   const campaign = useServerFn(runGroupCampaign);
+  const cleanup = useServerFn(removeDisconnectedUsers);
+  const doCleanup = async () => {
+    if (!confirm("Jo users group, backup group ya bot me kahin nahi jude, unhe hata dein?")) return;
+    try {
+      const r = await cleanup();
+      toast.success(`${r.removed} users hata diye`);
+      qc.invalidateQueries({ queryKey: ["admin"] });
+    } catch (e) { toast.error((e as Error).message); }
+  };
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState<null | "invite" | "remind">(null);
@@ -66,7 +75,7 @@ function UsersPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl md:text-3xl font-bold">Users <span className="text-sm font-normal text-muted-foreground">({total})</span></h1>
-        <Button variant="outline" size="sm" onClick={download}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
+        <div className="flex gap-2"><Button variant="destructive" size="sm" onClick={doCleanup}>Disconnected users hatao</Button><Button variant="outline" size="sm" onClick={download}><Download className="h-4 w-4 mr-2" />Export CSV</Button></div>
       </div>
 
       <Card className="p-4 space-y-3">

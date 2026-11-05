@@ -353,6 +353,24 @@ function parseQuery(raw: string) {
   return { movieName, year, language };
 }
 
+// Hinglish filler words jo users movie naam ke saath likhte hain ("dangal movie hindi me").
+const FILLER_WORDS = [
+  "download", "downloads", "downloading", "kaise", "karein", "kare", "karo", "kro", "krdo", "karna",
+  "bhejo", "bhej", "bhejdo", "bhejde", "dena", "dedo", "de", "dijiye", "chahiye", "chaiye", "chahie",
+  "link", "links", "movie", "movies", "moviee", "muvi", "muvie", "film", "films", "picture", "pictures", "pic",
+  "full", "hd", "print", "watch", "online", "free", "quality", "wali", "wala", "wale",
+  "me", "mein", "mai", "main", "ka", "ki", "ke", "se", "hai", "he", "hoga", "hogi",
+  "chahta", "chahti", "hu", "hoon", "please", "pls", "plz", "send", "kardo", "kar", "naam", "name",
+];
+
+/** Rule-based query cleaner — "dangal movie hindi me" → "dangal" (0 sec, no AI call). */
+function cleanQuery(raw: string): string {
+  let s = (raw || "").toLowerCase();
+  s = s.replace(/[^\p{L}\p{N}\s]/gu, " ");
+  const words = s.split(/\s+/).filter((w) => w && !FILLER_WORDS.includes(w));
+  return words.join(" ").trim();
+}
+
 function buildFilterKeyboard(query: string, results: MovieRow[]): InlineKeyboard {
   const years = [...new Set(results.map((m) => m.year).filter(Boolean))].sort().reverse();
   const langs = [...new Set(results.map((m) => m.language).filter(Boolean))].sort();
@@ -2037,7 +2055,7 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
         }
         return renderSearchResults(ctx, parsedName, matches, 1);
       }
-      if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
+      if (await tryAiResolve(ctx, rawQuery)) return;
       return showTMDBRequestButtons(ctx, parsedName, tmdb.Poster, caption + releaseReason(tmdb._releaseDate));
     }
 
@@ -2068,7 +2086,25 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       return tempReply(ctx, txt, { parse_mode: "Markdown", reply_markup: kb });
     }
 
-    if (await tryAiResolve(ctx, rawQuery, allMovies)) return;
+    // Pass 2 — rule-based query cleaner: "dangal movie hindi me" → "dangal" (0 sec, no AI).
+    const cleanedQ = parseQuery(cleanQuery(rawQuery));
+    if (cleanedQ.movieName.length >= 3 && cleanedQ.movieName.toLowerCase() !== parsedName.toLowerCase()) {
+      let cResults = searchMovies(allMovies, cleanedQ.movieName);
+      if (cleanedQ.year) cResults = cResults.filter((m) => String(m.year) === cleanedQ.year);
+      if (cleanedQ.language) cResults = cResults.filter((m) => langOk(m.language, cleanedQ.language));
+      if (cResults.length > 0) {
+        await tempReply(ctx,
+          `🧹 Aapne likha tha "${escapeMarkdown(parsedName)}" — clean karke *${escapeMarkdown(cleanedQ.movieName)}* search kiya:`,
+          { parse_mode: "Markdown" });
+        return renderSearchResults(ctx, cleanedQ.movieName, cResults, 1);
+      }
+      const cTmdb = await tmdbSearchByTitle(cleanedQ.movieName);
+      if (cTmdb) {
+        return showTMDBRequestButtons(ctx, cleanedQ.movieName, cTmdb.Poster, releaseReason(cTmdb._releaseDate));
+      }
+    }
+
+    if (await tryAiResolve(ctx, rawQuery)) return;
     return showTMDBRequestButtons(ctx, parsedName, null, null);
   });
 
@@ -2096,19 +2132,28 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
     }
   }
 
-  async function tryAiResolve(ctx: Context, rawQuery: string, allMovies: MovieRow[]): Promise<boolean> {
+  async function tryAiResolve(ctx: Context, rawQuery: string): Promise<boolean> {
     try {
       const { aiResolveTitles } = await import("./ai.server");
       const titles = await aiResolveTitles(rawQuery);
+      const candidates: string[] = [];
       for (const t of titles) {
-        if (t.toLowerCase().trim() === rawQuery.toLowerCase().trim()) continue;
-        const hits = searchMovies(allMovies, t);
-        if (hits.length) {
-          await tempReply(ctx, `🤖 AI ne samjha: *${escapeMarkdown(t)}*`, { parse_mode: "Markdown" });
-          await renderSearchResults(ctx, t, hits, 1);
-          return true;
-        }
+        const tt = (t || "").trim();
+        if (!tt || tt.toLowerCase() === rawQuery.toLowerCase().trim()) continue;
+        if (candidates.some((c) => c.toLowerCase() === tt.toLowerCase())) continue;
+        candidates.push(tt);
+        if (candidates.length >= 3) break;
       }
+      if (candidates.length === 0) return false;
+      // Confirmation flow: sirf movie buttons + "kya aap yeh search kar rahe the?"
+      const kb = new InlineKeyboard();
+      for (const t of candidates) {
+        const key = await storePayload({ title: t });
+        kb.text(`🎬 ${t}`.slice(0, 64), `aiq_${key}`).row();
+      }
+      kb.url("📷 Instagram", INSTAGRAM_URL);
+      await tempReply(ctx, `🤖 Kya aap yeh movie search kar rahe the? Sahi wali par tap karein:`, { reply_markup: kb });
+      return true;
     } catch (e) {
       console.error("[ai] resolve failed", e);
     }
@@ -2172,6 +2217,18 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       if (!MOOD_MAP[mood]) return ctx.answerCallbackQuery({ text: "❌ Invalid mood" });
       await ctx.answerCallbackQuery({ text: `${MOOD_MAP[mood].label} movies...` });
       return sendRandomMovie(ctx, mood);
+    }
+
+    if (data.startsWith("aiq_")) {
+      const p = await getPayload(data.slice("aiq_".length));
+      if (!p?.title) return ctx.answerCallbackQuery({ text: "⏳ Yeh button expire ho gaya" });
+      await ctx.answerCallbackQuery({ text: `🔍 ${p.title} search...` });
+      const allMovies = await fetchAllMovies();
+      const hits = searchMovies(allMovies, p.title);
+      if (hits.length > 0) return renderSearchResults(ctx, p.title, hits, 1);
+      const tmdb = await tmdbSearchByTitle(p.title);
+      if (tmdb) return showTMDBRequestButtons(ctx, p.title, tmdb.Poster, releaseReason(tmdb._releaseDate));
+      return tempReply(ctx, `❌ *${escapeMarkdown(p.title)}* na hamare paas mili na TMDB pe. Request karein:`, { parse_mode: "Markdown" });
     }
 
     if (data === "edit_cancel") {

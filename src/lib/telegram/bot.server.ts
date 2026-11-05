@@ -2091,7 +2091,7 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
     if (cleanedQ.movieName.length >= 3 && cleanedQ.movieName.toLowerCase() !== parsedName.toLowerCase()) {
       let cResults = searchMovies(allMovies, cleanedQ.movieName);
       if (cleanedQ.year) cResults = cResults.filter((m) => String(m.year) === cleanedQ.year);
-      if (cleanedQ.language) cResults = cResults.filter((m) => langOk(m.language, cleanedQ.language));
+      if (cleanedQ.language) cResults = cResults.filter((m) => langOk(m.language, cleanedQ.language!));
       if (cResults.length > 0) {
         await tempReply(ctx,
           `🧹 Aapne likha tha "${escapeMarkdown(parsedName)}" — clean karke *${escapeMarkdown(cleanedQ.movieName)}* search kiya:`,

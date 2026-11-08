@@ -812,3 +812,12 @@ export const runChannelScanBatch = createServerFn({ method: "POST" })
     p = await sc.runScanBatch(api, PRIMARY_ADMIN(), p, 15);
     return p as any;
   });
+
+export const autoMatchTmdbBatch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { afterId?: number; batch?: number }) => d)
+  .handler(async ({ context, data }) => {
+    await assertAdmin(context.claims);
+    const { autoMatchBatch } = await import("@/lib/telegram/automatch.server");
+    return await autoMatchBatch(Math.max(0, data.afterId ?? 0), Math.min(15, Math.max(1, data.batch ?? 10)));
+  });

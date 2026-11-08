@@ -29,6 +29,13 @@ export interface MovieRow {
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {
+  if (allCache && Date.now() - allCache.at < 60_000) return allCache.rows;
+  const rows = await fetchAllMoviesRaw();
+  allCache = { at: Date.now(), rows };
+  return rows;
+}
+
+async function fetchAllMoviesRaw(): Promise<MovieRow[]> {
   let allMovies: MovieRow[] = [];
   let from = 0;
   const size = 1000;

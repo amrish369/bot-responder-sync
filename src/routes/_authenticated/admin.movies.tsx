@@ -63,6 +63,7 @@ function MoviesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl md:text-3xl font-bold">Movies <span className="text-sm font-normal text-muted-foreground">({total})</span></h1>
+        <AutoMatchButton onDone={() => qc.invalidateQueries({ queryKey: ["admin", "movies"] })} />
         {selected.size > 0 && (
           <Button variant="destructive" size="sm" onClick={bulkDelete}>
             <Trash2 className="h-4 w-4 mr-2" />Delete {selected.size}

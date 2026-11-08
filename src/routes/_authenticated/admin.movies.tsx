@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listMovies, updateMovieAdmin, deleteMovieAdmin, reArchiveMovie } from "@/lib/admin/admin.functions";
+import { listMovies, updateMovieAdmin, deleteMovieAdmin, reArchiveMovie, autoMatchTmdbBatch } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

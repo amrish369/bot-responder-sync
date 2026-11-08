@@ -1,3 +1,4 @@
+import { parseSmart, seriesTag } from "./smart-parse.server";
 export const KNOWN_LANGUAGES = [
   "hindi", "english", "tamil", "telugu", "malayalam", "kannada",
   "dual audio", "multi audio", "punjabi", "bengali", "marathi", "gujarati",
@@ -119,6 +120,13 @@ export function parseCaption(raw: string): ParsedCaption {
   let name = stripJunk(s);
   // Drop trailing stray single letters / bare numbers left by tags (e.g. "Tam T", "H 264")
   name = name.replace(/(\s+(?:[a-z]|\d{3,}))+$/i, "").trim();
+  // Web-series: "Mirzapur S01 E01-08 Combined" → "Mirzapur S01E01-E08 Combined"
+  const smart = parseSmart(original);
+  if (smart.kind === "series" && smart.title.length >= 2) {
+    const tag = seriesTag({ title: smart.title, content_kind: "series", season: smart.season,
+      episode_start: smart.episode_start, episode_end: smart.episode_end, is_combined: smart.combined });
+    name = tag ? `${smart.title} ${tag}` : smart.title;
+  }
   return { name, year, language, quality, part };
 }
 

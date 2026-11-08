@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listMovies, updateMovieAdmin, deleteMovieAdmin, reArchiveMovie } from "@/lib/admin/admin.functions";
+import { listMovies, updateMovieAdmin, deleteMovieAdmin, reArchiveMovie, autoMatchTmdbBatch } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,7 @@ function MoviesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl md:text-3xl font-bold">Movies <span className="text-sm font-normal text-muted-foreground">({total})</span></h1>
+        <AutoMatchButton onDone={() => qc.invalidateQueries({ queryKey: ["admin", "movies"] })} />
         {selected.size > 0 && (
           <Button variant="destructive" size="sm" onClick={bulkDelete}>
             <Trash2 className="h-4 w-4 mr-2" />Delete {selected.size}
@@ -146,6 +147,45 @@ function MoviesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+function AutoMatchButton({ onDone }: { onDone: () => void }) {
+  const run = useServerFn(autoMatchTmdbBatch);
+  const [state, setState] = useState<{ running: boolean; done: number; matched: number; skipped: number; remaining: number } | null>(null);
+  const stopRef = useRef(false);
+  const start = async () => {
+    stopRef.current = false;
+    let afterId = 0, done = 0, matched = 0, skipped = 0, remaining = 1;
+    setState({ running: true, done, matched, skipped, remaining: 0 });
+    try {
+      while (!stopRef.current && remaining > 0) {
+        const r = await run({ data: { afterId, batch: 10 } });
+        afterId = r.lastId; done += r.processed; matched += r.matched; skipped += r.skipped; remaining = r.remaining;
+        setState({ running: true, done, matched, skipped, remaining });
+        if (!r.processed) break;
+      }
+      toast.success(`Auto-match done: ${matched} matched, ${skipped} need manual check`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Auto-match failed");
+    } finally {
+      setState((s) => (s ? { ...s, running: false } : s));
+      onDone();
+    }
+  };
+  const total = state ? state.done + state.remaining : 0;
+  const pct = total ? Math.round((state!.done / total) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {state?.running
+        ? <Button size="sm" variant="outline" onClick={() => { stopRef.current = true; }}>Stop</Button>
+        : <Button size="sm" onClick={start}>⚡ Auto-Match All with TMDB</Button>}
+      {state && (
+        <div className="text-xs text-muted-foreground min-w-[220px]">
+          <div className="h-1.5 w-full rounded bg-muted overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+          {state.done} / {total} checked · ✅ {state.matched} matched · ⚠️ {state.skipped} manual
+        </div>
+      )}
     </div>
   );
 }

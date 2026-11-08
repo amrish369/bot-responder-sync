@@ -29,6 +29,13 @@ export interface MovieRow {
 }
 
 export async function fetchAllMovies(): Promise<MovieRow[]> {
+  if (allCache && Date.now() - allCache.at < 60_000) return allCache.rows;
+  const rows = await fetchAllMoviesRaw();
+  allCache = { at: Date.now(), rows };
+  return rows;
+}
+
+async function fetchAllMoviesRaw(): Promise<MovieRow[]> {
   let allMovies: MovieRow[] = [];
   let from = 0;
   const size = 1000;
@@ -56,6 +63,57 @@ export async function fetchAllMovies(): Promise<MovieRow[]> {
 
   return allMovies;
 }
+
+// ── Hot query cache: same search dobara aaye to database call nahi ──
+const HOT_TTL_MS = 5 * 60 * 1000;
+const HOT_MAX = 2000;
+const hotCache = new Map<string, { at: number; rows: MovieRow[] }>();
+
+/** Naya upload/edit hone par cache saaf karo taaki nayi file turant dikhe. */
+export function clearSearchCache() {
+  hotCache.clear();
+  allCache = null;
+}
+
+/**
+ * Indexed candidate fetch — 10 lakh files me se sirf matching rows lata hai.
+ * Result bot memory me 5 min yaad rehta hai. RPC na mile to purane full-load par fallback.
+ */
+export async function fetchSearchCandidates(query: string, limit = 300): Promise<MovieRow[]> {
+  const key = query.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!key) return [];
+  const hit = hotCache.get(key);
+  if (hit && Date.now() - hit.at < HOT_TTL_MS) return hit.rows;
+
+  const { data, error } = await (supabaseAdmin as any).rpc("search_movie_candidates", {
+    q: key,
+    lim: limit,
+  });
+  let rows: MovieRow[];
+  if (error) {
+    console.error("[DB] search_movie_candidates (fallback to full load)", error.message);
+    rows = await fetchAllMovies();
+  } else {
+    rows = (data ?? []) as MovieRow[];
+  }
+  if (hotCache.size >= HOT_MAX) {
+    const first = hotCache.keys().next().value;
+    if (first !== undefined) hotCache.delete(first);
+  }
+  hotCache.set(key, { at: Date.now(), rows });
+  return rows;
+}
+
+/** Multiple queries ke candidates ek saath (dedupe by id). */
+export async function fetchCandidatesFor(queries: string[]): Promise<MovieRow[]> {
+  const uniq = [...new Set(queries.map((q) => q.trim()).filter((q) => q.length >= 2))];
+  const lists = await Promise.all(uniq.map((q) => fetchSearchCandidates(q)));
+  const seen = new Map<number, MovieRow>();
+  for (const l of lists) for (const m of l) seen.set(m.id, m);
+  return [...seen.values()];
+}
+
+let allCache: { at: number; rows: MovieRow[] } | null = null;
 
 export async function fetchMovieById(id: number): Promise<MovieRow | null> {
   const { data } = await supabaseAdmin.from("movies").select("*").eq("id", id).maybeSingle();

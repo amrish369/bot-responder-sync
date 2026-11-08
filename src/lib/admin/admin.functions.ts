@@ -438,12 +438,23 @@ export const testBotConnection = createServerFn({ method: "POST" })
 
 // ─── Per-bot webhook management ─────────────────────────────
 async function publicOrigin(): Promise<string> {
-  const env = process.env.PUBLIC_APP_URL || process.env.APP_URL;
-  if (env) return env.replace(/\/$/, "");
-  // NEVER derive this from the admin panel request: the panel is often opened on
-  // an `id-preview--…` host, which redirects through auth and makes every
-  // Telegram webhook fail. Always use the stable published project URL.
-  return "https://project--1b722323-ac1e-469f-895f-b63ab16c46ce.lovable.app";
+  const configured = process.env.PUBLIC_APP_URL?.trim();
+
+  if (!configured) {
+    throw new Error("PUBLIC_APP_URL is required");
+  }
+
+  const parsed = new URL(configured);
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("PUBLIC_APP_URL must use HTTPS");
+  }
+
+  if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    throw new Error("PUBLIC_APP_URL must be an origin only");
+  }
+
+  return parsed.origin;
 }
 
 export const getBotWebhookInfo = createServerFn({ method: "POST" })

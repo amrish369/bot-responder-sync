@@ -317,3 +317,38 @@ export async function getIndianMoviesByType(type: "new" | "upcoming" = "new", co
   }
   return out;
 }
+// ── Movie + TV search options (used by bulk auto-match) ───────
+export interface TMDBOption {
+  tmdbId: number;
+  kind: "Movie" | "TV";
+  title: string;
+  year: string | null;
+}
+
+export async function tmdbSearchOptions(query: string, max = 10): Promise<TMDBOption[]> {
+  const [mv, tv] = await Promise.all([
+    tmdbGet<any>("/search/movie", { query, language: "en-US", include_adult: false }),
+    tmdbGet<any>("/search/tv", { query, language: "en-US", include_adult: false }),
+  ]);
+  const out: (TMDBOption & { pop: number })[] = [];
+  for (const m of mv?.results ?? []) out.push({ tmdbId: m.id, kind: "Movie", title: m.title || m.original_title || "", year: m.release_date?.slice(0, 4) || null, pop: m.popularity ?? 0 });
+  for (const t of tv?.results ?? []) out.push({ tmdbId: t.id, kind: "TV", title: t.name || t.original_name || "", year: t.first_air_date?.slice(0, 4) || null, pop: t.popularity ?? 0 });
+  return out.sort((a, b) => b.pop - a.pop).slice(0, max).map(({ pop: _p, ...o }) => o);
+}
+
+export async function tmdbTvDetailById(id: number): Promise<VerifiedMetadata | null> {
+  const d = await tmdbGet<any>(`/tv/${id}`, { language: "en-US", append_to_response: "external_ids" });
+  if (!d) return null;
+  const release = d.first_air_date || null;
+  const year = release ? Number(release.slice(0, 4)) : null;
+  return {
+    media_type: "TV", tmdb_id: id, imdb_id: d.external_ids?.imdb_id ?? null,
+    title: d.name || d.original_name || "", original_title: d.original_name || "",
+    year: Number.isFinite(year as number) ? (year as number) : null,
+    language: LANG_MAP[d.original_language] || d.original_language?.toUpperCase() || "N/A",
+    overview: d.overview || "", genres: d.genres?.map((g: any) => g.name).join(", ") || "",
+    poster_url: d.poster_path ? `${TMDB_IMG}${d.poster_path}` : null,
+    backdrop_url: d.backdrop_path ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}` : null,
+    runtime: d.episode_run_time?.[0] ?? null, confidence: 1, release_date: release,
+  };
+}

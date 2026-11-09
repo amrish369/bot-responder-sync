@@ -648,7 +648,9 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
           { reply_markup: okb },
         );
       } else {
-        await ctx.reply(`⚠️ TMDB par "${cleanName}" nahi mila. /edit ${inserted.id} se naam theek karein.`);
+        await ctx.reply(
+          `⚠️ TMDB par "${cleanName}" nahi mila.\n\n✍️ Sahi naam type karne ke liye: /edit ${inserted.id}\n(Naya naam dete hi TMDB match ke buttons aa jayenge.)`,
+        );
       }
     } catch (e) {
       console.error("[tmdb options]", (e as Error).message);
@@ -1841,7 +1843,11 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       const fileId = msg.video?.file_id ?? msg.document?.file_id;
       const fileKind = fileKindFromMessage(msg);
       const fileSize = msg.video?.file_size ?? msg.document?.file_size ?? null;
-      const caption = (msg.caption ?? "").trim();
+      const rawCaption = (msg.caption ?? "").trim();
+      const fileName = (msg.document?.file_name ?? (msg.video as any)?.file_name ?? "").trim();
+      const capName = parseCaption(rawCaption).name;
+      // Caption khali/sirf notice ho ya bahut lamba ho → asli file name use karo
+      const caption = (!capName || capName.split(/\s+/).length > 7) && fileName ? fileName : rawCaption;
       if (!fileId) {
         return ctx.reply("❌ File ID nahi mila. Dobara try karein.");
       }

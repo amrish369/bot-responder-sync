@@ -98,6 +98,11 @@ function detectSeries(text: string): SeriesHit | null {
       re: /\bS\s*(\d{1,2})\s*[.\-_ ]*\s*(?:E|EP|EPS|EPISODE)\s*(\d{1,3})\b/i,
       map: (m) => ({ season: +m[1], ep_start: +m[2], ep_end: +m[2], combined: combinedWord, consumed: [m[0]] }),
     },
+    // E01-E08 / EP 01-08 (no season)
+    {
+      re: /\b(?:E|EP|EPS|EPISODES?)\s*(\d{1,3})\s*(?:[-–—]|\s+to\s+)\s*(?:E|EP)?\s*(\d{1,3})\b/i,
+      map: (m) => ({ season: null, ep_start: +m[1], ep_end: +m[2], combined: true, consumed: [m[0]] }),
+    },
     // Season 2 Episode 4 / Season 02 Ep 4-8
     {
       re: /\bSeason\s*(\d{1,2})\s*(?:[-–—:]|\s)*\s*(?:Episode|Ep|E)\s*(\d{1,3})(?:\s*(?:[-–—]|\s+to\s+)\s*(?:Episode|Ep|E)?\s*(\d{1,3}))?\b/i,
@@ -256,6 +261,23 @@ export function seriesTag(m: CaptionSource): string | null {
   }
   if (epS) return `${s}E${pad(epS)}`;
   return `${s}${m.is_combined ? " Combined" : ""}`.trim();
+}
+
+/** Extract a series tag ("S01E01", "S01E01-E08 Combined", "S02 Combined") from raw text. */
+export function seriesTagFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const s = parseSmart(text);
+  if (s.kind !== "series") return null;
+  return seriesTag({ title: s.title, content_kind: "series", season: s.season,
+    episode_start: s.episode_start, episode_end: s.episode_end, is_combined: s.combined });
+}
+
+/** Append the series tag from `source` to a (TMDB) base title, unless already present. */
+export function withSeriesTag(baseTitle: string, source: string | null | undefined): string {
+  const tag = seriesTagFromText(source);
+  if (!tag) return baseTitle;
+  if (baseTitle.toLowerCase().includes(tag.toLowerCase())) return baseTitle;
+  return `${baseTitle} ${tag}`;
 }
 
 /** Human label for the season/episode part, e.g. "Season 1 · Episode 01-08 (Combined)". */

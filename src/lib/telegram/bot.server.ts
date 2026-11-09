@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import Fuse from "fuse.js";
+import { withSeriesTag } from "./smart-parse.server";
 import {
   BOT_TOKEN,
   BOT_USERNAME,
@@ -568,7 +569,9 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
     console.error("[tmdbVerify]", (e as Error).message);
   }
 
-  const finalTitle = verified?.title || cleanName;
+  const finalTitle = verified?.title
+    ? withSeriesTag(verified.title, `${cleanName} ${pend.name}`)
+    : cleanName;
   const finalYear = verified?.year ?? yearHint ?? null;
   const finalLang = pend.language ?? reparsed.language ?? verified?.language ?? null;
   const aliases = generateAliases(finalTitle, verified?.original_title || null);
@@ -2618,9 +2621,10 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       const meta = await tmdbDetailById(Number(p.tmdbId));
       const cur = await fetchMovieById(Number(p.movieId));
       if (!meta || !cur) return ctx.answerCallbackQuery({ text: "❌ TMDB/movie nahi mili", show_alert: true });
+      const fixedTitle = withSeriesTag(meta.title, cur.title);
       const aliases = generateAliases(meta.title, meta.original_title || null);
       const { movie: fixed, error } = await updateMovie(cur.id, {
-        title: meta.title,
+        title: fixedTitle,
         year: meta.year,
         language: cur.language || meta.language,
         tmdb_id: meta.tmdb_id,

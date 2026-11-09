@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { getSettings } from "./settings.server";
 import { parseCaption, qualityFromSize, humanSize } from "./caption.server";
 import { tmdbVerify } from "./tmdb.server";
+import { withSeriesTag } from "./smart-parse.server";
 import { buildSearchText, generateAliases } from "./search.server";
 
 export interface IndexResult {
@@ -78,7 +79,7 @@ export async function indexChannelPost(msg: any, isEdit = false, force = false):
     console.error("[autoindex] tmdbVerify", (e as Error).message);
   }
 
-  const title = verified?.title || parsed.name;
+  const title = verified?.title ? withSeriesTag(verified.title, parsed.name) : parsed.name;
   const year = verified?.year ?? parsed.year ?? null;
   const language = parsed.language ?? verified?.language ?? null;
   const aliases = generateAliases(title, verified?.original_title || null);

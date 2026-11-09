@@ -222,12 +222,13 @@ export interface TMDBMatch {
 
 export async function tmdbSearchMultiple(query: string, maxResults = 5): Promise<TMDBMatch[]> {
   const words = query.replace(/[._]+/g, " ").trim().split(/\s+/).filter(Boolean);
-  for (let n = words.length; n >= 1; n--) {
+  // Full query first, then the first 4…1 words (titles usually come first).
+  const tries = [words.length, ...[4, 3, 2, 1].filter((n) => n < words.length)];
+  for (const n of tries) {
     const q = words.slice(0, n).join(" ");
-    if (n < words.length && q.length < 3) break;
+    if (n < words.length && q.length < 3) continue;
     const r = await tmdbSearchOnce(q, maxResults);
     if (r.length) return r;
-    if (words.length - n >= 3) break;
   }
   return [];
 }

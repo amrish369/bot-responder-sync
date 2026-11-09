@@ -1,5 +1,6 @@
 import { Bot, InlineKeyboard, type Context } from "grammy";
 import Fuse from "fuse.js";
+import { withSeriesTag } from "./smart-parse.server";
 import {
   BOT_TOKEN,
   BOT_USERNAME,

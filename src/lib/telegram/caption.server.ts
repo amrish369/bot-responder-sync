@@ -70,8 +70,20 @@ export function stripJunk(raw: string): string {
 }
 
 /** Parse "War 2019 720p Hindi" / "Street Fighter HDTS Hindi Telugu CLEAN mkv ⛩️ Powered By : X" */
+/** Channel notices like "Use VLC Player to avoid sound & language switching issues". */
+const NOTICE_RE =
+  /\b(?:please\s+)?(?:use|play|watch|open|try)\s+(?:in\s+|with\s+|on\s+)?(?:vlc|mx|mpv|kmplayer|plex)\b.*$|\b(?:vlc|mx)\s*players?\b.*$|\bto\s+avoid\b.*$|\b(?:sound|audio|language)\s*(?:&|and)?\s*(?:language|audio|track)?\s*(?:switching|change|changing|issues?|problem)\b.*$|\bhow\s+to\s+(?:play|watch|download)\b.*$/gi;
+
+export function stripNotices(raw: string): string {
+  return (raw || "")
+    .split(/[\r\n]+/)
+    .map((l) => l.replace(NOTICE_RE, " ").trim())
+    .filter((l) => l.replace(/[\p{Extended_Pictographic}\u2600-\u27BF\uFE0F\s\W]/gu, "").length > 0)
+    .join("\n");
+}
+
 export function parseCaption(raw: string): ParsedCaption {
-  const original = (raw || "").replace(/[\r\n]+/g, " ").trim();
+  const original = stripNotices(raw).replace(/[\r\n]+/g, " ").trim();
   if (!original) return { name: "", year: null, language: null, quality: null, part: null };
   let s = original.replace(/\b(powered|uploaded|presented|shared|brought)\s*by\b.*$/i, " ");
   s = s.replace(/[._]+/g, " ");

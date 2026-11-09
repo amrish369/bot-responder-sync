@@ -569,7 +569,7 @@ async function finishUpload(ctx: Context, pend: any, adminId: number) {
   }
 
   const finalTitle = verified?.title
-    ? withSeriesTag(verified.title, cleanName) || withSeriesTag(verified.title, pend.name)
+    ? withSeriesTag(verified.title, `${cleanName} ${pend.name}`)
     : cleanName;
   const finalYear = verified?.year ?? yearHint ?? null;
   const finalLang = pend.language ?? reparsed.language ?? verified?.language ?? null;

@@ -55,6 +55,8 @@ import {
   updateMovie,
   userDisplayName,
   type MovieRow,
+  fetchCandidatesFor,
+  clearSearchCache,
 } from "./db.server";
 import {
   insertBroadcastLog,
@@ -260,16 +262,7 @@ async function renderSearchResults(
   }
   // TMDB-verify the user's raw query and append a request button at the bottom.
   const reqKey = encodeURIComponent(query).slice(0, 50);
-  let reqLabel = `📩 Request "${query.slice(0, 30)}"`;
-  try {
-    const tmdb = await tmdbSearchByTitle(query);
-    if (tmdb?.Title) {
-      const yr = tmdb.Year ? ` (${tmdb.Year})` : "";
-      reqLabel = `📩 Request: ${tmdb.Title}${yr}`.slice(0, 60);
-    }
-  } catch {
-    /* ignore TMDB failures — fall back to raw query label */
-  }
+  const reqLabel = `📩 Request "${query.slice(0, 30)}"`;
   keyboard.row().text(reqLabel, `req_pick_${reqKey}`);
   if (editKey) {
     try {
@@ -2031,8 +2024,15 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
     }
 
     const { movieName: parsedName, year: parsedYear, language: parsedLang } = parseQuery(rawQuery);
+    const cleanedPre = parseQuery(cleanQuery(rawQuery)).movieName;
+    const allMovies = await fetchCandidatesFor([parsedName, cleanedPre, rawQuery]);
+    {
+      let quick = searchMovies(allMovies, parsedName);
+      if (parsedYear) quick = quick.filter((m) => String(m.year) === parsedYear);
+      if (parsedLang) quick = quick.filter((m) => langOk(m.language, parsedLang));
+      if (quick.length > 0) return renderSearchResults(ctx, parsedName, quick, 1);
+    }
     const tmdb = await tmdbSearchByTitle(parsedName);
-    const allMovies = await fetchAllMovies();
 
     if (tmdb) {
       let caption = `🎬 *${escapeMarkdown(tmdb.Title)}* (${tmdb.Year})\n`;

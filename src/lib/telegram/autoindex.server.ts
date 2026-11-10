@@ -50,8 +50,12 @@ export async function indexChannelPost(msg: any, isEdit = false, force = false):
   const file = extractFile(msg);
   if (!file) return { status: "skipped", reason: "no video/document" };
 
-  const rawText = (msg.caption || file.file_name || "").toString();
-  const parsed = parseCaption(rawText);
+  // Caption sirf promo ho to file ka asli naam use karo
+  let parsed = parseCaption((msg.caption || "").toString());
+  if ((!parsed.name || parsed.name.split(/\s+/).length > 7) && file.file_name) {
+    const fromFile = parseCaption(file.file_name);
+    if (fromFile.name) parsed = { ...fromFile, year: fromFile.year ?? parsed.year, language: parsed.language ?? fromFile.language, quality: parsed.quality ?? fromFile.quality };
+  }
   if (!parsed.name || parsed.name.length < 2) {
     return { status: "skipped", reason: "no usable title in caption/filename" };
   }

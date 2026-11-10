@@ -77,7 +77,12 @@ const NOTICE_RE =
 export function stripNotices(raw: string): string {
   return (raw || "")
     .split(/[\r\n]+/)
-    .map((l) => l.replace(NOTICE_RE, " ").trim())
+    // Promo lines (Join @xyz, t.me links, "for more movies") pura hatao
+    .filter((l) => !/\b(join|follow|subscribe|share|support)\b.*(@|t\.me|channel|group)|\bfor\s+more\s+(movies|updates)\b|requested\s+by/i.test(l))
+    .map((l) => l
+      .replace(/(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me)\/\S*/gi, " ")
+      .replace(/@[A-Za-z0-9_]{3,}/g, " ")
+      .replace(NOTICE_RE, " ").trim())
     .filter((l) => l.replace(/[\p{Extended_Pictographic}\u2600-\u27BF\uFE0F\s\W]/gu, "").length > 0)
     .join("\n");
 }

@@ -28,6 +28,8 @@ export const Route = createFileRoute("/api/public/telegram/register")({
                 "chat_join_request",
                 "my_chat_member",
                 "chat_member",
+                "channel_post",
+                "edited_channel_post",
               ],
               drop_pending_updates: false,
             }),

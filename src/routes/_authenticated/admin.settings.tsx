@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getBotSettings, updateBotSettings, drainDeleteQueue } from "@/lib/admin/admin.functions";
+import { getBotSettings, updateBotSettings, drainDeleteQueue, manageBotAdmin } from "@/lib/admin/admin.functions";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,17 @@ function SettingsPage() {
   const get = useServerFn(getBotSettings);
   const upd = useServerFn(updateBotSettings);
   const drain = useServerFn(drainDeleteQueue);
+  const manage = useServerFn(manageBotAdmin);
+  const [newAdmin, setNewAdmin] = useState("");
+  const onAdmin = async (action: "add" | "remove", telegramId: number) => {
+    if (action === "remove" && !confirm(`Admin ${telegramId} ko hatana hai?`)) return;
+    try {
+      await manage({ data: { action, telegramId } });
+      toast.success(action === "add" ? `Admin added: ${telegramId}` : `Admin removed: ${telegramId}`);
+      if (action === "add") setNewAdmin("");
+      refetch();
+    } catch (e) { toast.error((e as Error).message); }
+  };
   const { data, refetch, isLoading } = useQuery({ queryKey: ["admin", "settings"], queryFn: () => get() });
   const [s, setS] = useState<any>(null);
 
@@ -42,6 +53,26 @@ function SettingsPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <h1 className="text-2xl md:text-3xl font-bold">Settings</h1>
+
+      <Card className="p-5 space-y-4">
+        <h2 className="font-semibold">Bot admins (Telegram user ID)</h2>
+        <div className="space-y-2">
+          {(s.effective_admin_ids ?? []).map((id: number) => (
+            <div key={id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+              <span className="font-mono text-sm">{id}</span>
+              <Button variant="destructive" size="sm"
+                disabled={(s.effective_admin_ids ?? []).length <= 1}
+                onClick={() => onAdmin("remove", id)}>Remove</Button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Input inputMode="numeric" placeholder="e.g. 5951923988" value={newAdmin}
+            onChange={(e) => setNewAdmin(e.target.value.replace(/\D/g, ""))} />
+          <Button onClick={() => onAdmin("add", Number(newAdmin))} disabled={!newAdmin}>Add</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">User apni ID @userinfobot se le sakta hai. Change turant bot par lagu hota hai.</p>
+      </Card>
 
       <Card className="p-5 space-y-4">
         <h2 className="font-semibold">Auto-delete</h2>

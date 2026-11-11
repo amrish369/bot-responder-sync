@@ -715,6 +715,12 @@ export function createBot(tokenOverride?: string, botId: number | null = null): 
     return res;
   });
 
+  // Load settings first so dashboard-managed admin IDs apply to this update.
+  bot.use(async (_ctx, next) => {
+    try { await getSettings(); } catch {}
+    await next();
+  });
+
   // Incoming messages (user + admin, private + group) bhi delete queue me.
   bot.use(async (ctx, next) => {
     const chatId = ctx.chat?.id;

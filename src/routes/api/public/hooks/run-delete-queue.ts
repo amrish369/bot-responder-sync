@@ -83,18 +83,29 @@ async function runOnce(limit = 500) {
   return { processed: (rows ?? []).length, deleted, dropped, retried };
 }
 
+async function scanTick() {
+  try {
+    const token = await tokenForBot(null);
+    if (!token) return { scan: "no token" };
+    const { autoScanTick } = await import("@/lib/telegram/scanner.server");
+    return await autoScanTick(token);
+  } catch (e) {
+    return { scan_error: (e as Error).message };
+  }
+}
+
 export const Route = createFileRoute("/api/public/hooks/run-delete-queue")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         const unauth = verifyHookSecret(request);
         if (unauth) return unauth;
-        return Response.json(await runOnce());
+        return Response.json({ ...(await runOnce()), ...(await scanTick()) });
       },
       GET: async ({ request }) => {
         const unauth = verifyHookSecret(request);
         if (unauth) return unauth;
-        return Response.json(await runOnce());
+        return Response.json({ ...(await runOnce()), ...(await scanTick()) });
       },
     },
   },

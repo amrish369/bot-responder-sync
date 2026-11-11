@@ -1565,10 +1565,16 @@ async function deliverUserPendingRequests(ctx: Context, userId: number): Promise
       await ctx.reply(`🚀 Scan shuru: message ${args[0]} se ${args[1]} tak. Thoda intezaar karein…`);
     } else {
       p = await getScanProgress();
-      if (!p || !p.running) {
-        return ctx.reply("Usage: /scan <start_id> <end_id>\nExample: /scan 1 2100\n\nStorage channel ke purane posts check karke saari files DB me add ho jayengi (duplicates skip).");
+      if (!p || !p.running || args[0] === 0) {
+        const { latestChannelMessageId } = await import("./scanner.server");
+        const last = await latestChannelMessageId(ctx.api);
+        if (!last) return ctx.reply("❌ Storage channel me bot post nahi kar pa raha. Bot ko channel admin (Post + Delete) banayein.");
+        p = newScan(1, last);
+        await ctx.reply(`🚀 Auto Sync shuru: channel ke 1 se ${last} tak saare posts check honge.\nJo DB me nahi hai wo add honge, baaki skip.\nBackground me apne aap chalega — khatam hone par report milegi.`);
       }
     }
+    p.helper = Number(ctx.from?.id);
+    p.auto = true;
     await runScanAndReport(ctx, p);
   });
 

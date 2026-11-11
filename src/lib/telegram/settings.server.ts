@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   CHANNEL as ENV_CHANNEL,
   BACKUP_CHANNEL as ENV_BACKUP,
+  setDashboardAdmins,
 } from "./config.server";
 
 export type UploadMode = "normal" | "fast";
@@ -16,6 +17,8 @@ export interface BotSettings {
   storage_channel_id: number;         // -100... channel id for movie file storage
   auto_index: boolean;                // auto-index files posted in storage channel
   public_site_url: string;            // base URL used for shareable movie links
+  admin_ids: number[];                // Telegram admin IDs added from dashboard
+  removed_admin_ids: number[];        // env admins removed from dashboard
 }
 
 const DEFAULTS: BotSettings = {
@@ -28,6 +31,8 @@ const DEFAULTS: BotSettings = {
   storage_channel_id: -1004299446417,
   auto_index: true,
   public_site_url: "https://downtoup781-gmail-com.lovable.app",
+  admin_ids: [],
+  removed_admin_ids: [],
 };
 
 let cache: { at: number; data: BotSettings } | null = null;
@@ -49,6 +54,10 @@ async function readAll(): Promise<BotSettings> {
   if (!merged.force_join_link) merged.force_join_link = ENV_CHANNEL();
   if (!merged.main_group_link) merged.main_group_link = linkFromHandle(ENV_CHANNEL());
   if (!merged.backup_group_link) merged.backup_group_link = linkFromHandle(ENV_BACKUP());
+  const toIds = (v: any) => (Array.isArray(v) ? v.map(Number).filter((n) => n > 0) : []);
+  merged.admin_ids = toIds(merged.admin_ids);
+  merged.removed_admin_ids = toIds(merged.removed_admin_ids);
+  setDashboardAdmins(merged.admin_ids, merged.removed_admin_ids);
   return merged as BotSettings;
 }
 

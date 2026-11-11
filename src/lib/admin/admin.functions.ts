@@ -694,7 +694,42 @@ export const getBotSettings = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertAdmin(context.claims);
     const { getSettings } = await import("@/lib/telegram/settings.server");
-    return await getSettings(true);
+    const { ADMIN_IDS, ENV_ADMIN_IDS } = await import("@/lib/telegram/config.server");
+    const s = await getSettings(true);
+    return { ...s, effective_admin_ids: [...ADMIN_IDS()], env_admin_ids: ENV_ADMIN_IDS() };
+  });
+
+export const manageBotAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { action: "add" | "remove"; telegramId: number }) => {
+    const id = Number(d.telegramId);
+    if (!Number.isInteger(id) || id <= 0) throw new Error("Valid Telegram user ID daalein");
+    if (d.action !== "add" && d.action !== "remove") throw new Error("Invalid action");
+    return { action: d.action, telegramId: id };
+  })
+  .handler(async ({ context, data }) => {
+    const email = await assertAdmin(context.claims);
+    const { getSettings, setSetting } = await import("@/lib/telegram/settings.server");
+    const { ADMIN_IDS } = await import("@/lib/telegram/config.server");
+    const s = await getSettings(true);
+    let added = new Set(s.admin_ids);
+    let removed = new Set(s.removed_admin_ids);
+    const id = data.telegramId;
+    if (data.action === "add") {
+      added.add(id);
+      removed.delete(id);
+    } else {
+      if (!ADMIN_IDS().has(id)) throw new Error("Ye ID admin nahi hai");
+      if (ADMIN_IDS().size <= 1) throw new Error("Aakhri admin ko remove nahi kar sakte");
+      added.delete(id);
+      removed.add(id);
+    }
+    await setSetting("admin_ids", [...added]);
+    await setSetting("removed_admin_ids", [...removed]);
+    await getSettings(true);
+    const { logActivity } = await import("./admin.server");
+    await logActivity(email, `bot_admin.${data.action}`, { telegramId: id });
+    return { ok: true, admins: [...ADMIN_IDS()] };
   });
 
 export const updateBotSettings = createServerFn({ method: "POST" })

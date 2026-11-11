@@ -14,13 +14,25 @@ export const BACKUP_CHANNEL_USERNAME = () =>
   (process.env.BACKUP_CHANNEL || "@cinebotbook").replace("@", "");
 export const BOT_USERNAME = () => process.env.BOT_USERNAME || "cineradarai_bot";
 
-export const ADMIN_IDS = (): Set<number> =>
-  new Set(
-    (process.env.ADMIN_ID || process.env.ADMIN_IDS || "5951923988")
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0),
-  );
+export const ENV_ADMIN_IDS = (): number[] =>
+  (process.env.ADMIN_ID || process.env.ADMIN_IDS || "5951923988")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+// Extra admins managed from dashboard Settings (synced by settings.server).
+let dashboardAdmins: number[] = [];
+let removedAdmins: number[] = [];
+export function setDashboardAdmins(ids: number[], removed: number[] = []) {
+  dashboardAdmins = ids.filter((n) => Number.isFinite(n) && n > 0);
+  removedAdmins = removed.filter((n) => Number.isFinite(n) && n > 0);
+}
+
+export const ADMIN_IDS = (): Set<number> => {
+  const set = new Set<number>([...ENV_ADMIN_IDS(), ...dashboardAdmins]);
+  for (const r of removedAdmins) if (set.size > 1) set.delete(r);
+  return set;
+};
 
 export const PRIMARY_ADMIN = (): number => [...ADMIN_IDS()][0];
 export const isAdmin = (id: number | undefined | null): boolean =>
